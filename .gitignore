@@ -1,0 +1,10 @@
+.venv-linux
+.venv-win
+.pytest_cache
+__pycache__
+zk/build
+zk/node_modules
+results
+storage_nodes
+*.wtns
+*.egg-info
