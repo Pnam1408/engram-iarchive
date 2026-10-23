@@ -1,4 +1,6 @@
 
+import random
+
 import pytest
 
 from engram.erasure_coding import encode, decode
@@ -76,3 +78,49 @@ def test_empty_data():
     )
 
     assert restored == b""
+
+def test_decode_various_shard_sets():
+    rng = random.Random(2026)
+
+    for data_shards, total_shards in [
+        (4, 6),
+        (4, 8),
+        (6, 8),
+    ]:
+        for size in [0, 1, 100, 1024, 65536]:
+            original = bytes(
+                rng.randrange(256)
+                for _ in range(size)
+            )
+
+            encoded = encode(
+                original,
+                data_shards=data_shards,
+                total_shards=total_shards,
+            )
+
+            # Kiểm tra nhiều tập gồm đúng k shard.
+            for _ in range(5):
+                indices = sorted(
+                    rng.sample(
+                        range(total_shards),
+                        data_shards,
+                    )
+                )
+
+                available = {
+                    i: encoded.shards[i]
+                    for i in indices
+                }
+
+                recovered = decode(
+                    available,
+                    original_size=size,
+                    data_shards=data_shards,
+                    total_shards=total_shards,
+                )
+
+                assert recovered == original, (
+                    f"Failed: RS({data_shards},{total_shards}), "
+                    f"size={size}, indices={indices}"
+                )
