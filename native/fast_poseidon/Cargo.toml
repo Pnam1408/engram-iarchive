@@ -1,0 +1,14 @@
+[package]
+name = "fast_poseidon"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "fast_poseidon"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.27", features = ["extension-module"] }
+light-poseidon = "0.2.0"
+ark-bn254 = "0.4.0"
+ark-ff = "0.4.0"

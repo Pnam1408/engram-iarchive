@@ -1,16 +1,17 @@
-from circomlibpy.poseidon import PoseidonHash
+import fast_poseidon
 
-def calculate_hash():
 
-    poseidon = PoseidonHash()
+def main() -> None:
+    result = fast_poseidon.hash_elements(["1", "2"])
 
-    # Hash một shard
-    leaf = poseidon.hash(1, [11])
-    print("Leaf:", leaf)
+    expected = (
+        "7853200120776062878684798364095072458815029376092732009249414926327459813530"
+    )
 
-    # Hash hai giá trị
-    parent = poseidon.hash(2, [12345, 67890])
-    print("Parent:", parent)
+    assert result == expected, f"Unexpected Poseidon hash: {result}"
+    print("Poseidon Rust backend: PASS")
+    print(f"Hash([1, 2]) = {result}")
+
 
 if __name__ == "__main__":
-    calculate_hash()
+    main()

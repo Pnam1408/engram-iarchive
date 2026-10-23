@@ -1,7 +1,7 @@
 
 from dataclasses import dataclass
 
-from circomlibpy.poseidon import PoseidonHash
+import fast_poseidon
 
 
 FIELD_MODULUS = (
@@ -13,7 +13,20 @@ LEAF_DOMAIN = 1
 NODE_DOMAIN = 2
 
 Hash = int
-_poseidon = PoseidonHash()
+
+class _RustPoseidon:
+    """Adapter giữ nguyên API hash(n, inputs) của backend cũ."""
+
+    def hash(self, n: int, inputs: list[int]) -> int:
+        if n != len(inputs):
+            raise ValueError("n must equal the number of inputs")
+
+        return int(
+            fast_poseidon.hash_elements([str(x) for x in inputs])
+        )
+
+
+_poseidon = _RustPoseidon()
 
 
 def _validate_field_element(value: int, name: str = "value") -> None:
