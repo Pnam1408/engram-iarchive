@@ -52,9 +52,15 @@ def load_input_metadata(
     n_shards_arg: int | None,
 ) -> tuple[int, int]:
     data = json.loads(input_path.read_text(encoding="utf-8"))
+    metadata_path = input_path.with_name(f"{input_path.stem}_metadata.json")
+    metadata = {}
+    if metadata_path.is_file():
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
 
-    shard_bytes_len = shard_bytes_arg or data.get("shardBytesLen")
-    n_shards = n_shards_arg or data.get("nShards", 8)
+    # Backward-compatible fallback for older input files; new files keep
+    # compile-time dimensions in a sidecar so witness input has signals only.
+    shard_bytes_len = shard_bytes_arg or metadata.get("shardBytesLen") or data.get("shardBytesLen")
+    n_shards = n_shards_arg or metadata.get("nShards") or data.get("nShards", 8)
 
     if shard_bytes_len is None:
         raise ValueError(

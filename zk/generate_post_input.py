@@ -80,10 +80,9 @@ def make_post_input(
             for sibling_hash, _ in shard_proof.siblings
         ])
 
+    # Only actual Circom signal names belong in input.json. Circuit dimensions
+    # are compile-time metadata and must not be passed to generate_witness.js.
     return {
-        "nShards": len(shards),
-        "shardBytesLen": len(shards[0]),
-    
         "merkleRoot": str(global_tree.root),
         "idx0": str(indices[0]),
         "idx1": str(indices[1]),
@@ -108,10 +107,17 @@ def save_post_input(
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(data, indent=2),
-        encoding="utf-8",
-    )
+    output_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+    metadata = {
+        "nShards": len(shards),
+        "shardBytesLen": len(shards[0]),
+        "nChunksPerShard": (len(shards[0]) + CHUNK_BYTES - 1) // CHUNK_BYTES,
+        "sampledShardCount": len(indices),
+        "sourceType": "synthetic_shards",
+    }
+    metadata_path = output_path.with_name(f"{output_path.stem}_metadata.json")
+    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
 
 if __name__ == "__main__":
@@ -128,4 +134,5 @@ if __name__ == "__main__":
         output_path="zk/input.json",
     )
 
-    print("Created zk/input.json")
+    print("Created zk/input.json (circuit signals only)")
+    print("Created zk/input_metadata.json (compile-time metadata)")

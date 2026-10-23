@@ -22,12 +22,12 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-R1CS = Path("build/engram_post_real_file.r1cs")
-WASM = Path("build/engram_post_real_file_js/engram_post_real_file.wasm")
-GENERATOR = Path("build/engram_post_real_file_js/generate_witness.js")
-ZKEY = Path("build/engram_post_real_file_final.zkey")
-VKEY = Path("build/engram_post_real_file_verification_key.json")
-INPUT = Path("input_real_file.json")
+R1CS = Path("build/engram_post_generated.r1cs")
+WASM = Path("build/engram_post_generated_js/engram_post_generated.wasm")
+GENERATOR = Path("build/engram_post_generated_js/generate_witness.js")
+ZKEY = Path("build/engram_post_generated.zkey")
+VKEY = Path("build/engram_post_generated_verification_key.json")
+INPUT = Path("input.json")
 BOOTSTRAP_SAMPLES = 2000
 
 
@@ -187,21 +187,30 @@ def main() -> None:
     for p in (R1CS, WASM, GENERATOR, ZKEY, VKEY):
         required(root, p)
     input_data = json.loads(input_path.read_text(encoding="utf-8"))
-    shard_chunks = input_data.get("shardChunks")
-    if not isinstance(shard_chunks, list) or not shard_chunks:
-        parser.error("Input JSON must contain a non-empty `shardChunks` array.")
-    if not isinstance(shard_chunks[0], list) or not shard_chunks[0]:
-        parser.error("Each `shardChunks` entry must be a non-empty list.")
-    chunks_per_shard = len(shard_chunks[0])
-    if any(not isinstance(chunks, list) or len(chunks) != chunks_per_shard
-           for chunks in shard_chunks):
-        parser.error("All sampled shards must have the same number of chunks.")
+    # The circuit input contains only signal names. Compile-time dimensions
+    # are recorded in a sibling *_metadata.json file by generate_post_input.py.
+    metadata_path = input_path.with_name(f"{input_path.stem}_metadata.json")
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8")) if metadata_path.is_file() else {}
+    chunk_values = input_data.get("chunkValues")
+    chunk_paths = input_data.get("chunkPaths")
+    if not isinstance(chunk_values, list) or len(chunk_values) != 3:
+        parser.error("Input JSON must contain exactly 3 chunkValues witnesses.")
+    if not isinstance(chunk_paths, list) or len(chunk_paths) != 3:
+        parser.error("Input JSON must contain exactly 3 chunkPaths.")
+    shard_bytes_len = metadata.get("shardBytesLen", input_data.get("shardBytesLen"))
+    chunks_per_shard = metadata.get("nChunksPerShard")
+    if chunks_per_shard is None and isinstance(shard_bytes_len, int):
+        chunks_per_shard = (shard_bytes_len + 30) // 31
+    if not isinstance(chunks_per_shard, int) or chunks_per_shard < 1:
+        parser.error(f"Cannot determine chunks per shard. Add metadata to {metadata_path}.")
     if args.source_size_bytes is not None and args.source_size_bytes < 0:
         parser.error("--source-size-bytes cannot be negative")
+    if args.source_size_bytes is None:
+        args.source_size_bytes = metadata.get("sourceSizeBytes")
 
     input_hash = hashlib.sha256(input_path.read_bytes()).hexdigest()
     input_bytes = input_path.stat().st_size
-    sampled_shards = len(shard_chunks)
+    sampled_shards = len(chunk_values)
     constraints, r1cs_info = read_constraint_count(root)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -257,6 +266,7 @@ def main() -> None:
             "source_size_bytes": args.source_size_bytes,
             "sampled_shard_count": sampled_shards,
             "chunks_per_sampled_shard": chunks_per_shard,
+            "shard_bytes_len": shard_bytes_len,
             "r1cs_file": str(root / R1CS), "zkey_file": str(root / ZKEY),
             "verification_key_file": str(root / VKEY),
             "excluded_from_timing": [

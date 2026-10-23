@@ -2,7 +2,7 @@
 import pytest
 
 from engram.erasure_coding import encode, decode
-from engram.merkle import build_merkle_tree
+from engram.merkle import build_chunk_merkle_tree, verify_hash_path
 from engram.storage import StorageManager
 
 
@@ -86,14 +86,29 @@ def test_missing_chunk_raises_error(tmp_path):
         storage.load_available_shards("unknown_chunk")
 
 
-def test_store_with_precomputed_merkle_tree(tmp_path):
+def test_store_builds_chunk_level_merkle_commitment(tmp_path):
     storage = StorageManager(tmp_path, node_count=6)
-    encoded = encode(b"Precomputed tree", data_shards=4, total_shards=6)
-    tree = build_merkle_tree(list(encoded.shards))
+    original = bytes(range(256)) * 2
+    encoded = encode(original, data_shards=4, total_shards=6)
+    storage.store_chunk("chunk_commitment", encoded)
 
-    storage.store_chunk("chunk_precomputed", encoded, precomputed_tree=tree)
+    assert storage.get_merkle_root("chunk_commitment") > 0
+    assert len(storage.get_chunk_counts("chunk_commitment")) == 6
 
-    assert storage.get_merkle_root("chunk_precomputed") == tree.root
+    shard_index = 2
+    chunk_index = 0
+    chunk, chunk_path, shard_path = storage.get_chunk_response(
+        "chunk_commitment", shard_index, chunk_index
+    )
+    shard = encoded.shards[shard_index]
+    shard_tree = build_chunk_merkle_tree(shard)
+    assert verify_hash_path(
+        shard_tree.levels[0][chunk_index], chunk_path, shard_tree.root
+    )
+    assert verify_hash_path(
+        shard_tree.root, shard_path, storage.get_merkle_root("chunk_commitment")
+    )
+    assert chunk == shard[:len(chunk)]
 
 
 def test_delete_chunk_removes_shards_and_manifest(tmp_path):
