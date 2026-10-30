@@ -1,3 +1,4 @@
+#engram/incremental/buffer.py
 """Short-lived generation buffer and seal-staging payload files.
 
 Buffer bytes are kept outside the long-lived JSON object metadata. The metadata

@@ -1,3 +1,4 @@
+#tests/test_incremental.py
 import tempfile
 import unittest
 import time
@@ -99,6 +100,92 @@ class IncrementalStoreTests(unittest.TestCase):
             store.append("doc", b"small")
             with self.assertRaises(RuntimeError):
                 store.get_version("doc", 1)
+
+    def test_generation_metadata_must_have_contiguous_versions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = self.make_store(tmp)
+            store.append("doc", b"AAAA")
+            store.append("doc", b"BBBB")
+
+            state = store._load("doc")
+
+            staged = {
+                "generation_id": "test-generation",
+                "start_version": 1,
+                "end_version": 3,
+                "entries": [
+                    {
+                        "version": 1,
+                        "delta_size_bytes": 4,
+                        "delta_sha256": "a" * 64,
+                    },
+                    {
+                        "version": 3,
+                        "delta_size_bytes": 4,
+                        "delta_sha256": "b" * 64,
+                    },
+                ],
+            }
+
+            with self.assertRaises(ValueError):
+                store._validate_staged_generation(
+                    state,
+                    staged,
+                    b"AAAABBBB",
+                )
+
+    def test_verify_history_detects_version_generation_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = self.make_store(tmp)
+            store.append("doc", b"data")
+            store.seal("doc")
+
+            state = store._load("doc")
+            state["versions"][0]["generation_id"] = "wrong-generation"
+            store._save("doc", state)
+
+            self.assertFalse(store.verify_history("doc"))
+
+    def test_verify_history_detects_duplicate_generation_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = self.make_store(tmp)
+            store.append("doc", b"AAAA")
+            store.append("doc", b"BBBB")
+            store.seal("doc")
+
+            state = store._load("doc")
+            generation = state["generations"][0]
+
+            # Make the second entry refer to the first version.
+            generation["entries"][1]["version"] = 1
+            store._save("doc", state)
+
+            self.assertFalse(store.verify_history("doc"))
+
+    def test_generation_persists_encoding_configuration(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = self.make_store(tmp)
+            store.append("doc", b"data")
+            store.seal("doc")
+
+            state = store._load("doc")
+            generation = state["generations"][0]
+
+            self.assertEqual(generation["data_shards"], 2)
+            self.assertEqual(generation["total_shards"], 4)
+            self.assertEqual(generation["chunk_size"], 4)
+
+    def test_verify_history_checks_open_buffer_delta_hashes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = self.make_store(tmp)
+            store.append("doc", b"data")
+
+            state = store._load("doc")
+            state["open"]["entries"][0]["delta_sha256"] = "0" * 64
+            state["versions"][0]["delta_sha256"] = "0" * 64
+            store._save("doc", state)
+
+            self.assertFalse(store.verify_history("doc"))
 
 
 if __name__ == "__main__":

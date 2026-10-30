@@ -1,3 +1,4 @@
+#engram/incremental/store.py
 """Public incremental store API and append orchestration."""
 from __future__ import annotations
 

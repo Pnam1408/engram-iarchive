@@ -1,3 +1,4 @@
+#engram/incremental/state.py
 """Persistence helpers for long-lived object metadata and chunk commitments."""
 from __future__ import annotations
 

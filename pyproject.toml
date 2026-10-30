@@ -12,13 +12,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = [
+    "pytest",
+    "hypothesis",
+]
 
 [project.scripts]
 engram-benchmark = "engram.experiment:main"
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+package-dir = {"" = "src", "benchmarks" = "benchmarks"}
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["src", "."]
+include = ["engram*", "benchmarks*"]
+namespaces = false

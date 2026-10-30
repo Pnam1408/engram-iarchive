@@ -1,3 +1,4 @@
+#engram/incremental/generations.py
 """Generation batching, sealing, publication, and crash recovery."""
 from __future__ import annotations
 
@@ -88,12 +89,14 @@ class GenerationMixin:
                             associated_data=generation_id.encode())
         if hashlib.sha256(plaintext).hexdigest() != staged["plaintext_sha256"]:
             raise RuntimeError("Generation plaintext commitment mismatch")
+        self._validate_staged_generation(state, staged, plaintext)
 
         generation = {
             "generation_id": generation_id,
             "start_version": staged["start_version"],
             "end_version": staged["end_version"],
             "chunk_root": staged["chunk_root"],
+            "chunk_size": self.chunk_size,
             "plaintext_sha256": staged["plaintext_sha256"],
             "plaintext_size_bytes": staged["plaintext_size_bytes"],
             "nonce_b64": staged["nonce_b64"],
@@ -143,24 +146,59 @@ class GenerationMixin:
             return True
         return False
 
-    def _read_generation_plaintext(self, state: dict[str, Any], generation: dict[str, Any]) -> bytes:
+    def _read_generation_plaintext(
+        self,
+        state: dict[str, Any],
+        generation: dict[str, Any],
+    ) -> bytes:
         generation_id = generation["generation_id"]
+
         metadata = self.storage.get_chunk_metadata(generation_id)
         available = self.storage.load_available_shards(generation_id)
 
-        if len(available) < self.data_shards:
-            raise RuntimeError(f"Generation {generation_id} is not reconstructible")
+        data_shards = int(generation.get("data_shards", self.data_shards))
+        total_shards = int(generation.get("total_shards", self.total_shards))
+        chunk_size = int(generation.get("chunk_size", self.chunk_size))
 
-        ciphertext = decode(available, metadata.original_size, self.data_shards, self.total_shards)
+        if not (1 <= data_shards < total_shards <= 255):
+            raise ValueError(f"Invalid Reed-Solomon configuration: {generation_id}")
+
+        if len(available) < data_shards:
+            raise RuntimeError(
+                f"Generation {generation_id} is not reconstructible"
+            )
+
+        ciphertext = decode(
+            available,
+            metadata.original_size,
+            data_shards,
+            total_shards,
+        )
+
         key = self._unb64(state["key_b64"])
         nonce = self._unb64(generation["nonce_b64"])
-        plaintext = decrypt(EncryptedPayload(ciphertext=ciphertext, nonce=nonce), key,
-                            associated_data=generation_id.encode())
-    
+
+        plaintext = decrypt(
+            EncryptedPayload(ciphertext=ciphertext, nonce=nonce),
+            key,
+            associated_data=generation_id.encode(),
+        )
+
+        if len(plaintext) != int(generation["plaintext_size_bytes"]):
+            raise ValueError(
+                f"Generation plaintext size mismatch: {generation_id}"
+            )
+
         if hashlib.sha256(plaintext).hexdigest() != generation["plaintext_sha256"]:
-            raise ValueError(f"Generation content hash mismatch: {generation_id}")
-        if self._chunk_root(plaintext, self.chunk_size) != generation["chunk_root"]:
-            raise ValueError(f"Generation chunk root mismatch: {generation_id}")
+            raise ValueError(
+                f"Generation content hash mismatch: {generation_id}"
+            )
+
+        if self._chunk_root(plaintext, chunk_size) != generation["chunk_root"]:
+            raise ValueError(
+                f"Generation chunk root mismatch: {generation_id}"
+            )
+
         return plaintext
 
     def seal(self, object_id: str) -> bool:
@@ -172,3 +210,75 @@ class GenerationMixin:
             return False
         self._seal(object_id, state)
         return True
+
+    def _validate_staged_generation(
+        self,
+        state: dict[str, Any],
+        staged: dict[str, Any],
+        plaintext: bytes,
+    ) -> None:
+        """Validate staged generation metadata before publishing/committing."""
+        entries = staged.get("entries")
+
+        if not isinstance(entries, list) or not entries:
+            raise ValueError("Staged generation must contain entries")
+
+        versions = [int(entry["version"]) for entry in entries]
+
+        if versions != list(range(versions[0], versions[-1] + 1)):
+            raise ValueError("Generation versions must be unique and contiguous")
+
+        if versions[0] != int(staged["start_version"]):
+            raise ValueError("Generation start_version mismatch")
+
+        if versions[-1] != int(staged["end_version"]):
+            raise ValueError("Generation end_version mismatch")
+
+        if sum(int(entry["delta_size_bytes"]) for entry in entries) != len(plaintext):
+            raise ValueError("Generation entries size does not match plaintext size")
+
+        # Every staged entry must match an existing version record.
+        records = {}
+
+        for record in state["versions"]:
+            version = int(record["version"])
+
+            if version in records:
+                raise ValueError(f"Duplicate version record: {version}")
+
+            records[version] = record
+
+        generation_id = staged["generation_id"]
+
+        for entry in entries:
+            version = int(entry["version"])
+            record = records.get(version)
+
+            if record is None:
+                raise ValueError(f"Version {version} is missing from object state")
+
+            if int(record["delta_size_bytes"]) != int(entry["delta_size_bytes"]):
+                raise ValueError(f"Version {version} delta size mismatch")
+
+            if record["delta_sha256"] != entry["delta_sha256"]:
+                raise ValueError(f"Version {version} delta hash mismatch")
+
+            existing_generation_id = record.get("generation_id")
+
+            if existing_generation_id not in (None, generation_id):
+                raise ValueError(
+                    f"Version {version} already belongs to another generation"
+                )
+
+        # A version must not already belong to a different committed generation.
+        staged_version_set = set(versions)
+
+        for generation in state["generations"]:
+            if generation["generation_id"] == generation_id:
+                continue
+
+            for entry in generation["entries"]:
+                if int(entry["version"]) in staged_version_set:
+                    raise ValueError(
+                        f"Version {entry['version']} already exists in another generation"
+                    )
