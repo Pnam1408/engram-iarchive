@@ -1,310 +1,528 @@
 
-import pytest
 from dataclasses import replace
 
-from engram.challenge import (
-    create_challenge,
-    derive_p,
-    select_chunk_indices,
+import pytest
+
+from engram.erasure_coding import EncodedShards
+from engram.proof import (
+    ShardChallenge,
+    ShardWitness,
+    generate_shard_proof,
+    verify_shard_proof,
+    verify_challenge_proofs,
 )
-from engram.erasure_coding import encode
-from engram.merkle import hash_chunk, verify_hash_path
 from engram.storage import StorageManager
-from engram.proof import generate_proof, verify_storage_proof
+from engram.challenge_common import derive_p
 
 
-TOTAL_SHARDS = 6
-CHALLENGE_SIZE = 3
+@pytest.fixture
+def proof_context(tmp_path):
+    """
+    Tạo một chunk gồm 3 shard, mỗi shard có 70 bytes.
 
+    Mỗi shard có:
+        ceil(70 / 31) = 3 chunks
 
-def setup_storage(tmp_path):
-    storage = StorageManager(tmp_path, node_count=TOTAL_SHARDS)
+    Cấu trúc commitment:
+        global_root
+          ├── shard_root_0
+          │     ├── chunk_0
+          │     ├── chunk_1
+          │     └── chunk_2
+          ├── shard_root_1
+          │     ├── chunk_0
+          │     ├── chunk_1
+          │     └── chunk_2
+          └── shard_root_2
+                ├── chunk_0
+                ├── chunk_1
+                └── chunk_2
+    """
 
-    # Dữ liệu đủ lớn để mỗi shard chứa nhiều chunk.
-    payload = bytes(range(256)) * 8
-    encoded = encode(
-        payload,
-        data_shards=4,
-        total_shards=TOTAL_SHARDS,
+    shards = (
+        bytes(range(70)),
+        bytes((i + 70) % 256 for i in range(70)),
+        bytes((i + 140) % 256 for i in range(70)),
     )
-    storage.store_chunk("chunk_001", encoded)
 
-    return storage
+    encoded = EncodedShards(
+        shards=shards,
+        original_size=210,
+        data_shards=3,
+        total_shards=3,
+    )
+
+    storage = StorageManager(
+        root_dir=tmp_path / "storage",
+        node_count=3,
+    )
+
+    chunk_id = "test-chunk"
+
+    storage.store_chunk(chunk_id, encoded)
+
+    witnesses = {}
+
+    for shard_index in range(3):
+        for chunk_index in range(3):
+            chunk_data, chunk_path, shard_path = (
+                storage.get_chunk_response(
+                    chunk_id=chunk_id,
+                    shard_index=shard_index,
+                    chunk_index=chunk_index,
+                )
+            )
+
+            witnesses[(shard_index, chunk_index)] = ShardWitness(
+                commitment_id=chunk_id,
+                shard_index=shard_index,
+                chunk_index=chunk_index,
+                chunk_data=chunk_data,
+                chunk_merkle_path=chunk_path,
+                shard_merkle_path=shard_path,
+            )
+
+    return {
+        "storage": storage,
+        "commitment_id": chunk_id,
+        "root": storage.get_merkle_root(chunk_id),
+        "chunks_per_shard": storage.get_chunk_counts(chunk_id),
+        "total_shards": 3,
+        "witnesses": witnesses,
+    }
 
 
-def create_test_challenge(storage):
-    chunks_per_shard = storage.get_chunk_counts("chunk_001")
-
-    return create_challenge(
-        "chunk_001",
-        total_shards=TOTAL_SHARDS,
-        chunks_per_shard=chunks_per_shard,
-        k=CHALLENGE_SIZE,
+@pytest.fixture
+def challenge_p():
+    return derive_p(
+        "block_hash=abc", 
+        "miner_id=miner-001", 
+        "epoch_id=epoch-001"
     )
 
 
-def verify_test_proof(storage, proof, root, expected_p):
-    return verify_storage_proof(
+def make_proof(target, witness, p):
+    return generate_shard_proof(
+        target=target,
+        p=p,
+        witness=witness,
+    )
+
+
+def verify_single(context, target, proof, p):
+    return verify_shard_proof(
         proof=proof,
-        expected_root=root,
-        expected_p=expected_p,
-        total_shards=TOTAL_SHARDS,
-        k=CHALLENGE_SIZE,
-        chunks_per_shard=storage.get_chunk_counts(proof.chunk_id),
+        expected_root=context["root"],
+        expected_target=target,
+        expected_p=p,
+        chunks_per_shard=context["chunks_per_shard"],
+        total_shards=context["total_shards"],
     )
 
 
-def test_challenge_selects_expected_number_of_shards_and_chunks(tmp_path):
-    storage = setup_storage(tmp_path)
-    challenge = create_test_challenge(storage)
-    chunks_per_shard = storage.get_chunk_counts("chunk_001")
+# ---------------------------------------------------------------------
+# Single proof verification
+# ---------------------------------------------------------------------
 
-    assert len(challenge.shard_indices) == CHALLENGE_SIZE
-    assert len(challenge.chunk_indices) == CHALLENGE_SIZE
-    assert len(set(challenge.shard_indices)) == CHALLENGE_SIZE
+def test_verify_valid_shard_proof(proof_context, challenge_p):
+    context = proof_context
 
-    for shard_index, chunk_index in zip(
-        challenge.shard_indices,
-        challenge.chunk_indices,
-    ):
-        assert 0 <= shard_index < TOTAL_SHARDS
-        assert 0 <= chunk_index < chunks_per_shard[shard_index]
-
-
-def test_same_inputs_produce_same_challenge(tmp_path):
-    storage = setup_storage(tmp_path)
-
-    first = create_test_challenge(storage)
-    second = create_test_challenge(storage)
-
-    assert first == second
-
-
-def test_chunk_indices_are_deterministic():
-    p = derive_p("block-1", "miner-1", "epoch-1")
-    shards = (0, 2, 4)
-    chunks_per_shard = (10, 12, 14, 16, 18, 20)
-
-    first = select_chunk_indices(p, shards, chunks_per_shard)
-    second = select_chunk_indices(p, shards, chunks_per_shard)
-
-    assert first == second
-
-
-def test_invalid_chunk_layout_is_rejected():
-    p = derive_p("block-1", "miner-1", "epoch-1")
-
-    with pytest.raises(ValueError):
-        select_chunk_indices(p, (0, 1), (10, 0, 10))
-
-
-def test_invalid_shard_index_is_rejected():
-    p = derive_p("block-1", "miner-1", "epoch-1")
-
-    with pytest.raises(ValueError):
-        select_chunk_indices(p, (0, 6), (10, 10, 10, 10, 10, 10))
-
-
-def test_valid_challenge_proof(tmp_path):
-    storage = setup_storage(tmp_path)
-    root = storage.get_merkle_root("chunk_001")
-    challenge = create_test_challenge(storage)
-
-    proof = generate_proof(
-        storage=storage,
-        chunk_id=challenge.chunk_id,
-        p=challenge.p,
-        total_shards=TOTAL_SHARDS,
-        k=CHALLENGE_SIZE,
+    target = ShardChallenge(
+        commitment_id=context["commitment_id"],
+        shard_index=0,
+        chunk_index=0,
     )
 
-    assert len(proof.witnesses) == CHALLENGE_SIZE
-    assert verify_test_proof(storage, proof, root, challenge.p)
+    witness = context["witnesses"][(0, 0)]
+    proof = make_proof(target, witness, challenge_p)
+
+    assert verify_single(context, target, proof, challenge_p)
 
 
-def test_modified_chunk_is_rejected(tmp_path):
-    storage = setup_storage(tmp_path)
-    root = storage.get_merkle_root("chunk_001")
-    challenge = create_test_challenge(storage)
+def test_verify_valid_last_chunk(proof_context, challenge_p):
+    """Kiểm tra chunk cuối cùng, có thể có độ dài nhỏ hơn 31 bytes."""
 
-    proof = generate_proof(
-        storage=storage,
-        chunk_id=challenge.chunk_id,
-        p=challenge.p,
-        total_shards=TOTAL_SHARDS,
-        k=CHALLENGE_SIZE,
+    context = proof_context
+
+    target = ShardChallenge(
+        commitment_id=context["commitment_id"],
+        shard_index=0,
+        chunk_index=2,
     )
 
-    first = proof.witnesses[0]
-    modified_data = bytes([first.chunk_data[0] ^ 1]) + first.chunk_data[1:]
+    witness = context["witnesses"][(0, 2)]
+    proof = make_proof(target, witness, challenge_p)
 
-    modified_witness = replace(first, chunk_data=modified_data)
-    modified_proof = replace(
+    assert len(witness.chunk_data) == 8
+    assert verify_single(context, target, proof, challenge_p)
+
+
+def test_verify_rejects_tampered_chunk_data(
+    proof_context,
+    challenge_p,
+):
+    context = proof_context
+
+    target = ShardChallenge(
+        context["commitment_id"],
+        0,
+        0,
+    )
+
+    witness = context["witnesses"][(0, 0)]
+
+    tampered_data = bytes(
+        [witness.chunk_data[0] ^ 0xFF]
+    ) + witness.chunk_data[1:]
+
+    tampered_witness = replace(
+        witness,
+        chunk_data=tampered_data,
+    )
+
+    proof = make_proof(target, tampered_witness, challenge_p)
+
+    assert not verify_single(
+        context,
+        target,
         proof,
-        witnesses=(modified_witness,) + proof.witnesses[1:],
-    )
-
-    assert not verify_test_proof(
-        storage, modified_proof, root, challenge.p
+        challenge_p,
     )
 
 
-def test_wrong_challenge_value_is_rejected(tmp_path):
-    storage = setup_storage(tmp_path)
-    root = storage.get_merkle_root("chunk_001")
-    challenge = create_test_challenge(storage)
+def test_verify_rejects_tampered_chunk_merkle_path(
+    proof_context,
+    challenge_p,
+):
+    context = proof_context
 
-    proof = generate_proof(
-        storage=storage,
-        chunk_id=challenge.chunk_id,
-        p=challenge.p,
-        total_shards=TOTAL_SHARDS,
-        k=CHALLENGE_SIZE,
+    target = ShardChallenge(
+        context["commitment_id"],
+        0,
+        0,
     )
 
-    modified_proof = replace(proof, p=b"\x00" * 32)
+    witness = context["witnesses"][(0, 0)]
 
-    assert not verify_test_proof(
-        storage, modified_proof, root, challenge.p
+    siblings = list(witness.chunk_merkle_path.siblings)
+
+    original_hash, sibling_is_left = siblings[0]
+    siblings[0] = (
+        (original_hash + 1) % (2**254),
+        sibling_is_left,
     )
 
-
-def test_wrong_shard_index_is_rejected(tmp_path):
-    storage = setup_storage(tmp_path)
-    root = storage.get_merkle_root("chunk_001")
-    challenge = create_test_challenge(storage)
-
-    proof = generate_proof(
-        storage=storage,
-        chunk_id=challenge.chunk_id,
-        p=challenge.p,
-        total_shards=TOTAL_SHARDS,
-        k=CHALLENGE_SIZE,
+    tampered_path = replace(
+        witness.chunk_merkle_path,
+        siblings=tuple(siblings),
     )
 
-    first = proof.witnesses[0]
-    wrong_index = (first.shard_index + 1) % TOTAL_SHARDS
-    modified_witness = replace(first, shard_index=wrong_index)
+    tampered_witness = replace(
+        witness,
+        chunk_merkle_path=tampered_path,
+    )
 
-    modified_proof = replace(
+    proof = make_proof(target, tampered_witness, challenge_p)
+
+    assert not verify_single(
+        context,
+        target,
         proof,
-        witnesses=(modified_witness,) + proof.witnesses[1:],
-    )
-
-    assert not verify_test_proof(
-        storage, modified_proof, root, challenge.p
+        challenge_p,
     )
 
 
-def test_wrong_chunk_index_is_rejected(tmp_path):
-    storage = setup_storage(tmp_path)
-    root = storage.get_merkle_root("chunk_001")
-    challenge = create_test_challenge(storage)
+def test_verify_rejects_tampered_shard_merkle_path(
+    proof_context,
+    challenge_p,
+):
+    context = proof_context
 
-    proof = generate_proof(
-        storage=storage,
-        chunk_id=challenge.chunk_id,
-        p=challenge.p,
-        total_shards=TOTAL_SHARDS,
-        k=CHALLENGE_SIZE,
+    target = ShardChallenge(
+        context["commitment_id"],
+        0,
+        0,
     )
 
-    first = proof.witnesses[0]
-    chunk_count = storage.get_chunk_counts("chunk_001")[first.shard_index]
-    wrong_index = (first.chunk_index + 1) % chunk_count
+    witness = context["witnesses"][(0, 0)]
 
-    modified_witness = replace(first, chunk_index=wrong_index)
-    modified_proof = replace(
+    siblings = list(witness.shard_merkle_path.siblings)
+
+    original_hash, sibling_is_left = siblings[0]
+    siblings[0] = (
+        (original_hash + 1) % (2**254),
+        sibling_is_left,
+    )
+
+    tampered_path = replace(
+        witness.shard_merkle_path,
+        siblings=tuple(siblings),
+    )
+
+    tampered_witness = replace(
+        witness,
+        shard_merkle_path=tampered_path,
+    )
+
+    proof = make_proof(target, tampered_witness, challenge_p)
+
+    assert not verify_single(
+        context,
+        target,
         proof,
-        witnesses=(modified_witness,) + proof.witnesses[1:],
-    )
-
-    assert not verify_test_proof(
-        storage, modified_proof, root, challenge.p
+        challenge_p,
     )
 
 
-def test_chunk_merkle_path_is_valid(tmp_path):
-    storage = setup_storage(tmp_path)
-    root = storage.get_merkle_root("chunk_001")
-    challenge = create_test_challenge(storage)
+def test_verify_rejects_wrong_challenge_p(
+    proof_context,
+    challenge_p,
+):
+    context = proof_context
 
-    proof = generate_proof(
-        storage=storage,
-        chunk_id=challenge.chunk_id,
-        p=challenge.p,
-        total_shards=TOTAL_SHARDS,
-        k=CHALLENGE_SIZE,
+    target = ShardChallenge(
+        context["commitment_id"],
+        0,
+        0,
     )
 
-    for witness in proof.witnesses:
-        chunk_root = _reconstruct_root_for_test(
-            hash_chunk(witness.chunk_data),
-            witness.chunk_merkle_path,
+    witness = context["witnesses"][(0, 0)]
+    proof = make_proof(target, witness, challenge_p)
+
+    assert not verify_single(
+        context,
+        target,
+        proof,
+        b"wrong-challenge-p",
+    )
+
+
+def test_verify_rejects_wrong_target(
+    proof_context,
+    challenge_p,
+):
+    context = proof_context
+
+    original_target = ShardChallenge(
+        context["commitment_id"],
+        0,
+        0,
+    )
+
+    wrong_target = ShardChallenge(
+        context["commitment_id"],
+        1,
+        0,
+    )
+
+    witness = context["witnesses"][(0, 0)]
+    proof = make_proof(original_target, witness, challenge_p)
+
+    assert not verify_single(
+        context,
+        wrong_target,
+        proof,
+        challenge_p,
+    )
+
+
+def test_verify_rejects_wrong_commitment_root(
+    proof_context,
+    challenge_p,
+):
+    context = proof_context
+
+    target = ShardChallenge(
+        context["commitment_id"],
+        0,
+        0,
+    )
+
+    witness = context["witnesses"][(0, 0)]
+    proof = make_proof(target, witness, challenge_p)
+
+    wrong_root = (context["root"] + 1) % (2**254)
+
+    assert not verify_shard_proof(
+        proof=proof,
+        expected_root=wrong_root,
+        expected_target=target,
+        expected_p=challenge_p,
+        chunks_per_shard=(3,),
+        total_shards=3,
+    )
+
+
+# ---------------------------------------------------------------------
+# Batch challenge verification
+# ---------------------------------------------------------------------
+
+def test_verify_multiple_valid_proofs(
+    proof_context,
+    challenge_p,
+):
+    context = proof_context
+
+    targets = (
+        ShardChallenge(context["commitment_id"], 0, 0),
+        ShardChallenge(context["commitment_id"], 1, 1),
+        ShardChallenge(context["commitment_id"], 2, 2),
+    )
+
+    proofs = [
+        make_proof(
+            target,
+            context["witnesses"][
+                (target.shard_index, target.chunk_index)
+            ],
+            challenge_p,
         )
+        for target in targets
+    ]
 
-        assert chunk_root is not None
-        assert verify_hash_path(
-            chunk_root,
-            witness.shard_merkle_path,
-            root,
+    result = verify_challenge_proofs(
+        challenge_targets=targets,
+        proofs=tuple(proofs),
+        registered_roots={
+            context["commitment_id"]: context["root"],
+        },
+        expected_p=challenge_p,
+        layouts={
+            context["commitment_id"]: context["chunks_per_shard"],
+        },
+    )
+
+    assert result.valid
+    assert result.verified_count == 3
+    assert result.expected_count == 3
+    assert result.failed_targets == ()
+
+
+def test_batch_verification_rejects_missing_proof(
+    proof_context,
+    challenge_p,
+):
+    context = proof_context
+
+    targets = (
+        ShardChallenge(context["commitment_id"], 0, 0),
+        ShardChallenge(context["commitment_id"], 1, 1),
+    )
+
+    proofs = [
+        make_proof(
+            targets[0],
+            context["witnesses"][(0, 0)],
+            challenge_p,
         )
+    ]
+
+    result = verify_challenge_proofs(
+        challenge_targets=targets,
+        proofs=tuple(proofs),
+        registered_roots={
+            context["commitment_id"]: context["root"],
+        },
+        expected_p=challenge_p,
+        layouts={
+            context["commitment_id"]: context["chunks_per_shard"],
+        },
+    )
+
+    assert not result.valid
+    assert result.verified_count < result.expected_count
 
 
-def _reconstruct_root_for_test(leaf_hash, proof):
-    """Independent helper for testing the two-level Merkle paths."""
-    from engram.merkle import FIELD_MODULUS, hash_parent
+def test_batch_verification_rejects_duplicate_proof(
+    proof_context,
+    challenge_p,
+):
+    context = proof_context
 
-    index = proof.leaf_index
-    width = proof.leaf_count
-    current = leaf_hash
+    target = ShardChallenge(
+        context["commitment_id"],
+        0,
+        0,
+    )
 
-    if width <= 0 or not 0 <= index < width:
-        return None
+    witness = context["witnesses"][(0, 0)]
+    proof = make_proof(target, witness, challenge_p)
 
-    expected_depth = 0
-    remaining = width
-    while remaining > 1:
-        expected_depth += 1
-        remaining = (remaining + 1) // 2
+    result = verify_challenge_proofs(
+        challenge_targets=(target,),
+        proofs=(proof, proof),
+        registered_roots={
+            context["commitment_id"]: context["root"],
+        },
+        expected_p=challenge_p,
+        layouts={
+            context["commitment_id"]: context["chunks_per_shard"],
+        },
+    )
 
-    if len(proof.siblings) != expected_depth:
-        return None
-
-    for sibling_hash, sibling_is_left in proof.siblings:
-        if not 0 <= sibling_hash < FIELD_MODULUS:
-            return None
-
-        if sibling_is_left != (index % 2 == 1):
-            return None
-
-        if index % 2 == 0 and index == width - 1 and width % 2 == 1:
-            if sibling_hash != current:
-                return None
-
-        if sibling_is_left:
-            current = hash_parent(sibling_hash, current)
-        else:
-            current = hash_parent(current, sibling_hash)
-
-        index //= 2
-        width = (width + 1) // 2
-
-    return current
+    assert not result.valid
 
 
-def test_unavailable_node_cannot_provide_proof(tmp_path):
-    storage = setup_storage(tmp_path)
-    challenge = create_test_challenge(storage)
+def test_batch_verification_rejects_unexpected_proof(
+    proof_context,
+    challenge_p,
+):
+    context = proof_context
 
-    selected_index = challenge.shard_indices[0]
-    storage.set_node_available(selected_index, False)
+    expected_target = ShardChallenge(
+        context["commitment_id"],
+        0,
+        0,
+    )
 
-    with pytest.raises(ConnectionError):
-        generate_proof(
-            storage=storage,
-            chunk_id=challenge.chunk_id,
-            p=challenge.p,
-            total_shards=TOTAL_SHARDS,
-            k=CHALLENGE_SIZE,
-        )
+    unexpected_target = ShardChallenge(
+        context["commitment_id"],
+        1,
+        1,
+    )
+
+    expected_proof = make_proof(
+        expected_target,
+        context["witnesses"][(0, 0)],
+        challenge_p,
+    )
+
+    unexpected_proof = make_proof(
+        unexpected_target,
+        context["witnesses"][(1, 1)],
+        challenge_p,
+    )
+
+    result = verify_challenge_proofs(
+        challenge_targets=(expected_target,),
+        proofs=(expected_proof, unexpected_proof),
+        registered_roots={
+            context["commitment_id"]: context["root"],
+        },
+        expected_p=challenge_p,
+        layouts={
+            context["commitment_id"]: context["chunks_per_shard"],
+        },
+    )
+
+    assert not result.valid
+
+
+def test_batch_verification_rejects_unknown_commitment(
+    challenge_p,
+):
+    target = ShardChallenge(
+        commitment_id="unknown-generation",
+        shard_index=0,
+        chunk_index=0,
+    )
+
+    result = verify_challenge_proofs(
+        challenge_targets=(target,),
+        proofs=(),
+        registered_roots={},
+        expected_p=challenge_p,
+        layouts={},
+    )
+
+    assert not result.valid

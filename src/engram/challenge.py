@@ -1,8 +1,9 @@
-
+#engram/challenge.py
 from dataclasses import dataclass
 import hashlib
 import random
 
+from engram.challenge_common import derive_p
 
 DEFAULT_K = 3
 
@@ -13,27 +14,6 @@ class Challenge:
     p: bytes
     shard_indices: tuple[int, ...]
     chunk_indices: tuple[int, ...]
-
-
-def _encode_field(value: str) -> bytes:
-    """Encode one challenge input unambiguously."""
-    data = value.encode("utf-8")
-    return len(data).to_bytes(4, "big") + data
-
-
-def derive_p(
-    block_hash: str,
-    miner_id: str,
-    epoch_id: str,
-) -> bytes:
-    """Derive a deterministic challenge value using SHA-256."""
-    payload = (
-        b"ENGRAM_CHALLENGE_V1"
-        + _encode_field(block_hash)
-        + _encode_field(miner_id)
-        + _encode_field(epoch_id)
-    )
-    return hashlib.sha256(payload).digest()
 
 
 def select_shard_indices(

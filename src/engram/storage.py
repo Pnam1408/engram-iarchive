@@ -1,4 +1,4 @@
-
+#engram/storage.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -18,6 +18,12 @@ from engram.merkle import (
     build_chunk_merkle_tree,
     build_hash_tree,
 )
+
+
+@dataclass(frozen=True)
+class ChunkCommitment:
+    shard_roots: tuple[int, ...]
+    global_tree: MerkleTree
 
 
 @dataclass(frozen=True)
@@ -165,47 +171,87 @@ class StorageManager:
 
         return MerkleTree(levels=tuple(levels))
 
-    def store_chunk(
+    
+    def _validate_shards(
         self,
         chunk_id: str,
-        encoded: EncodedShards,
-    ) -> ChunkMetadata:
-        """Store encoded shards and persist only shard roots + global tree.
-
-        The old ``precomputed_tree`` parameter is intentionally removed:
-        an old whole-shard tree is incompatible with the new two-level layout.
-        """
-        chunk_id = self._validate_chunk_id(chunk_id)
-        shards = list(encoded.shards)
+        shards: list[bytes],
+    ) -> None:
+        """Validate chunk ID and encoded shards."""
+        self._validate_chunk_id(chunk_id)
 
         if not shards:
             raise ValueError("Cannot store an empty shard collection")
+
         if len(shards) != self.node_count:
             raise ValueError(
                 f"Expected {self.node_count} shards, got {len(shards)}"
             )
+
         if any(not isinstance(shard, bytes) or not shard for shard in shards):
             raise ValueError("Every shard must be non-empty bytes")
 
-        manifest_path = self._manifest_path(chunk_id)
-        if manifest_path.exists():
+        if self._manifest_path(chunk_id).exists():
             raise FileExistsError(
                 f"Chunk {chunk_id!r} already exists; delete it before replacing"
             )
 
-        # Build a chunk Merkle tree for each shard, but retain only its root.
+        for index in range(len(shards)):
+            path = self._shard_path(chunk_id, index)
+            if path.exists():
+                raise FileExistsError(f"Shard file already exists: {path}")
+
+    def build_commitment(
+        self,
+        shards: list[bytes],
+    ) -> ChunkCommitment:
+        """Build per-shard and global Merkle commitments.
+
+        This method does not perform any filesystem writes.
+        """
+        if not shards:
+            raise ValueError("Cannot build commitment for empty shards")
+
         shard_trees = [
             build_chunk_merkle_tree(shard)
             for shard in shards
         ]
-        shard_roots = [tree.root for tree in shard_trees]
 
-        # The global tree's leaves are shard roots, not whole-shard hashes.
-        global_tree = build_hash_tree(shard_roots)
+        shard_roots = tuple(tree.root for tree in shard_trees)
 
-        shard_records: list[dict[str, Any]] = []
+        global_tree = build_hash_tree(list(shard_roots))
+
+        return ChunkCommitment(
+            shard_roots=shard_roots,
+            global_tree=global_tree,
+        )
+
+    def write_shards(
+        self,
+        chunk_id: str,
+        shards: list[bytes],
+    ) -> list[dict[str, Any]]:
+        """Write encoded shard files without generating commitments.
+
+        This method does not calculate SHA-256 hashes or write manifests.
+        """
+        chunk_id = self._validate_chunk_id(chunk_id)
+
+        if len(shards) != self.node_count:
+            raise ValueError(
+                f"Expected {self.node_count} shards, got {len(shards)}"
+            )
+
+        records: list[dict[str, Any]] = []
+
         for index, shard in enumerate(shards):
+            if not isinstance(shard, bytes) or not shard:
+                raise ValueError(
+                    f"Shard {index} must be non-empty bytes"
+                )
+
             shard_path = self._shard_path(chunk_id, index)
+
             if shard_path.exists():
                 raise FileExistsError(
                     f"Shard file already exists: {shard_path}"
@@ -214,30 +260,79 @@ class StorageManager:
             self._atomic_write(shard_path, shard)
             self.bytes_written += len(shard)
 
-            shard_records.append({
+            records.append({
                 "index": index,
                 "size": len(shard),
-                "sha256": self._sha256(shard),
                 "file": shard_path.name,
             })
 
-        manifest: dict[str, Any] = {
+        return records
+
+    def build_manifest(
+        self,
+        chunk_id: str,
+        encoded: EncodedShards,
+        shards: list[bytes],
+        shard_records: list[dict[str, Any]],
+        commitment: ChunkCommitment,
+    ) -> dict[str, Any]:
+        """Build the manifest object in memory.
+
+        SHA-256 integrity hashes are calculated here, separately from
+        shard file writing and Merkle commitment generation.
+        """
+        chunk_id = self._validate_chunk_id(chunk_id)
+
+        if len(shards) != len(shard_records):
+            raise ValueError("Shard records do not match shard collection")
+
+        if len(shards) != len(commitment.shard_roots):
+            raise ValueError("Commitment does not match shard collection")
+
+        manifest_shards: list[dict[str, Any]] = []
+
+        for shard, record in zip(shards, shard_records):
+            manifest_shards.append({
+                **record,
+                "sha256": self._sha256(shard),
+            })
+
+        return {
             "chunk_id": chunk_id,
             "original_size": int(encoded.original_size),
             "data_shards": int(encoded.data_shards),
             "total_shards": len(shards),
-            "shards": shard_records,
+            "shards": manifest_shards,
             "shard_roots": [
-                self._encode_hash(root) for root in shard_roots
+                self._encode_hash(root)
+                for root in commitment.shard_roots
             ],
-            "merkle_root": self._encode_hash(global_tree.root),
+            "merkle_root": self._encode_hash(
+                commitment.global_tree.root
+            ),
             "merkle_levels": [
                 [self._encode_hash(value) for value in level]
-                for level in global_tree.levels
+                for level in commitment.global_tree.levels
             ],
         }
 
-        # Publish the manifest last, after the shard files have been written.
+    def persist_manifest(
+        self,
+        chunk_id: str,
+        manifest: dict[str, Any],
+    ) -> None:
+        """Serialize and atomically persist a completed manifest."""
+        chunk_id = self._validate_chunk_id(chunk_id)
+        manifest_path = self._manifest_path(chunk_id)
+
+        if manifest.get("chunk_id") != chunk_id:
+            raise ValueError("Manifest chunk_id does not match requested ID")
+
+        if manifest_path.exists():
+            raise FileExistsError(
+                f"Chunk {chunk_id!r} already exists; delete it before replacing"
+            )
+
         self._atomic_write(
             manifest_path,
             json.dumps(
@@ -247,12 +342,45 @@ class StorageManager:
             ).encode("utf-8"),
         )
 
+    def store_chunk(
+        self,
+        chunk_id: str,
+        encoded: EncodedShards,
+    ) -> ChunkMetadata:
+        """Execute the complete chunk storage workflow.
+
+        Preserves the original public API and operation order.
+        """
+        chunk_id = self._validate_chunk_id(chunk_id)
+        shards = list(encoded.shards)
+
+        self._validate_shards(chunk_id, shards)
+
+        # 1. Generate Merkle commitments.
+        commitment = self.build_commitment(shards)
+
+        # 2. Write shard files.
+        shard_records = self.write_shards(chunk_id, shards)
+
+        # 3. Build manifest metadata.
+        manifest = self.build_manifest(
+            chunk_id=chunk_id,
+            encoded=encoded,
+            shards=shards,
+            shard_records=shard_records,
+            commitment=commitment,
+        )
+
+        # 4. Publish manifest last.
+        self.persist_manifest(chunk_id, manifest)
+
         return ChunkMetadata(
             chunk_id=chunk_id,
             original_size=int(encoded.original_size),
             data_shards=int(encoded.data_shards),
             total_shards=len(shards),
         )
+
 
     def delete_chunk(self, chunk_id: str) -> int:
         """Delete a chunk and return the number of shard bytes removed."""
@@ -408,3 +536,29 @@ class StorageManager:
         shard_proof = global_tree.generate_proof(shard_index)
 
         return chunk_data, chunk_proof, shard_proof
+
+    def get_shard_layout(
+        self,
+        chunk_id: str,
+    ) -> tuple[int, int]:
+        """Return (shard_bytes_len, total_shards).
+    
+        All shards must have equal size.
+        """
+    
+        manifest = self._read_manifest(chunk_id)
+    
+        sizes = [
+            int(record["size"])
+            for record in manifest["shards"]
+        ]
+    
+        if not sizes:
+            raise ValueError("Manifest contains no shards")
+    
+        if len(set(sizes)) != 1:
+            raise ValueError(
+                "All shards must have the same size"
+            )
+    
+        return sizes[0], int(manifest["total_shards"])

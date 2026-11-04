@@ -1,22 +1,45 @@
-
+#engram/proof.py
 from dataclasses import dataclass
+from typing import Mapping
 
-from engram.challenge import (
-    create_challenge,
-    select_chunk_indices,
-    select_shard_indices,
-)
 from engram.merkle import (
     FIELD_MODULUS,
     MerkleProof,
     hash_chunk,
+    hash_parent,
     verify_hash_path,
 )
-from engram.storage import StorageManager
+
+
+# ---------------------------------------------------------------------
+# Data structures
+# ---------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class ShardChallenge:
+    """
+    One challenged chunk inside one shard.
+
+    Baseline:
+        commitment_id = snapshot/chunk ID
+
+    Incremental:
+        commitment_id = generation ID
+    """
+    commitment_id: str
+    shard_index: int
+    chunk_index: int
 
 
 @dataclass(frozen=True)
 class ShardWitness:
+    """
+    Witness required to prove possession of one challenged chunk.
+
+    The Storage Node must retain the complete shard, but only the
+    selected chunk and its authentication paths are used here.
+    """
+    commitment_id: str
     shard_index: int
     chunk_index: int
     chunk_data: bytes
@@ -25,210 +48,131 @@ class ShardWitness:
 
 
 @dataclass(frozen=True)
-class StorageProof:
-    chunk_id: str
+class ShardProof:
+    """One proof corresponding to exactly one challenged shard."""
+    target: ShardChallenge
     p: bytes
-    witnesses: tuple[ShardWitness, ...]
+    witness: ShardWitness
 
 
-def generate_proof(
-    storage: StorageManager,
-    chunk_id: str,
-    p: bytes,
-    total_shards: int,
-    k: int,
-) -> StorageProof:
-    """Collect challenged chunks and their two Merkle paths."""
-    if not isinstance(p, bytes) or len(p) != 32:
-        raise ValueError("p must be a 32-byte SHA-256 digest")
+@dataclass(frozen=True)
+class ChallengeProofResult:
+    """Aggregated verification result for an entire challenge."""
+    valid: bool
+    verified_count: int
+    expected_count: int
+    failed_targets: tuple[ShardChallenge, ...]
 
-    if storage.get_chunk_metadata(chunk_id).total_shards != total_shards:
-        raise ValueError("total_shards does not match stored metadata")
 
-    chunks_per_shard = storage.get_chunk_counts(chunk_id)
+# ---------------------------------------------------------------------
+# Validation helpers
+# ---------------------------------------------------------------------
 
-    if len(chunks_per_shard) != total_shards:
-        raise ValueError("Stored shard count does not match total_shards")
-
-    shard_indices = select_shard_indices(
-        p=p,
-        total_shards=total_shards,
-        k=k,
-    )
-
-    chunk_indices = select_chunk_indices(
-        p=p,
-        shard_indices=shard_indices,
-        chunks_per_shard=chunks_per_shard,
-    )
-
-    witnesses = []
-
-    for shard_index, chunk_index in zip(shard_indices, chunk_indices):
-        (
-            chunk_data,
-            chunk_merkle_path,
-            shard_merkle_path,
-        ) = storage.get_chunk_response(
-            chunk_id,
-            shard_index,
-            chunk_index,
-        )
-
-        witnesses.append(
-            ShardWitness(
-                shard_index=shard_index,
-                chunk_index=chunk_index,
-                chunk_data=chunk_data,
-                chunk_merkle_path=chunk_merkle_path,
-                shard_merkle_path=shard_merkle_path,
-            )
-        )
-
-    return StorageProof(
-        chunk_id=chunk_id,
-        p=p,
-        witnesses=tuple(witnesses),
+def _is_valid_field_element(value: object) -> bool:
+    return (
+        isinstance(value, int)
+        and not isinstance(value, bool)
+        and 0 <= value < FIELD_MODULUS
     )
 
 
-def verify_storage_proof(
-    proof: StorageProof,
-    expected_root: int,
-    expected_p: bytes,
-    total_shards: int,
-    k: int,
-    chunks_per_shard: tuple[int, ...],
+def _validate_target(target: ShardChallenge) -> bool:
+    if not isinstance(target, ShardChallenge):
+        return False
+
+    return (
+        isinstance(target.commitment_id, str)
+        and bool(target.commitment_id)
+        and isinstance(target.shard_index, int)
+        and not isinstance(target.shard_index, bool)
+        and target.shard_index >= 0
+        and isinstance(target.chunk_index, int)
+        and not isinstance(target.chunk_index, bool)
+        and target.chunk_index >= 0
+    )
+
+
+def _validate_witness(
+    witness: ShardWitness,
+    target: ShardChallenge,
 ) -> bool:
-    """
-    Verify the simulated two-level Merkle proof.
-
-    expected_root is the global Merkle root over shard roots.
-    chunks_per_shard is the trusted layout associated with the stored chunk.
-    """
-    if not isinstance(proof, StorageProof):
-        return False
-
-    if not isinstance(expected_p, bytes) or len(expected_p) != 32:
-        return False
-
-    if proof.p != expected_p:
+    if not isinstance(witness, ShardWitness):
         return False
 
     if (
-        not isinstance(expected_root, int)
-        or isinstance(expected_root, bool)
-        or not 0 <= expected_root < FIELD_MODULUS
+        witness.commitment_id != target.commitment_id
+        or witness.shard_index != target.shard_index
+        or witness.chunk_index != target.chunk_index
     ):
         return False
 
-    if (
-        not isinstance(total_shards, int)
-        or isinstance(total_shards, bool)
-        or total_shards <= 0
-    ):
+    if not isinstance(witness.chunk_data, bytes):
         return False
 
-    if (
-        not isinstance(chunks_per_shard, tuple)
-        or len(chunks_per_shard) != total_shards
-        or any(
-            not isinstance(n, int)
-            or isinstance(n, bool)
-            or n <= 0
-            for n in chunks_per_shard
-        )
-    ):
+    if not witness.chunk_data or len(witness.chunk_data) > 31:
         return False
 
-    try:
-        expected_shards = select_shard_indices(
-            expected_p,
-            total_shards,
-            k,
-        )
-        expected_chunks = select_chunk_indices(
-            expected_p,
-            expected_shards,
-            chunks_per_shard,
-        )
-    except (ValueError, TypeError, OverflowError):
+    if not isinstance(witness.chunk_merkle_path, MerkleProof):
         return False
 
-    if len(proof.witnesses) != k:
+    if not isinstance(witness.shard_merkle_path, MerkleProof):
         return False
-
-    actual_pairs = tuple(
-        (w.shard_index, w.chunk_index)
-        for w in proof.witnesses
-    )
-    expected_pairs = tuple(zip(expected_shards, expected_chunks))
-
-    if actual_pairs != expected_pairs:
-        return False
-
-    for witness in proof.witnesses:
-        if not isinstance(witness, ShardWitness):
-            return False
-
-        if not isinstance(witness.chunk_data, bytes):
-            return False
-
-        if not witness.chunk_data or len(witness.chunk_data) > 31:
-            return False
-
-        if witness.chunk_index >= chunks_per_shard[witness.shard_index]:
-            return False
-
-        chunk_path = witness.chunk_merkle_path
-        shard_path = witness.shard_merkle_path
-
-        if not isinstance(chunk_path, MerkleProof):
-            return False
-
-        if not isinstance(shard_path, MerkleProof):
-            return False
-
-        if chunk_path.leaf_index != witness.chunk_index:
-            return False
-
-        if chunk_path.leaf_count != chunks_per_shard[witness.shard_index]:
-            return False
-
-        if shard_path.leaf_index != witness.shard_index:
-            return False
-
-        if shard_path.leaf_count != total_shards:
-            return False
-
-        # Reconstruct the selected shard's chunk-tree root.
-        chunk_root = _root_from_path(
-            hash_chunk(witness.chunk_data),
-            chunk_path,
-        )
-        if chunk_root is None:
-            return False
-
-        # Verify that this shard root belongs to the global tree.
-        if not verify_hash_path(
-            chunk_root,
-            shard_path,
-            expected_root,
-        ):
-            return False
 
     return True
 
+
+# ---------------------------------------------------------------------
+# Proof generation
+# ---------------------------------------------------------------------
+
+def generate_shard_proof(
+    target: ShardChallenge,
+    p: bytes,
+    witness: ShardWitness,
+) -> ShardProof:
+    """
+    Generate a proof for one challenged shard.
+
+    This function is storage-independent:
+      - Baseline obtains the witness from StorageManager.
+      - Incremental obtains the witness from IncrementalStore.
+
+    Current implementation:
+        Creates a simulated proof containing the Merkle witness.
+
+    Future implementation:
+        The witness will be passed to the Groth16 prover, and the
+        returned proof bytes/public inputs will be stored in ShardProof.
+    """
+    if not _validate_target(target):
+        raise ValueError("Invalid challenge target")
+
+    if not isinstance(p, bytes) or len(p) != 32:
+        raise ValueError("p must be a 32-byte SHA-256 digest")
+
+    if not _validate_witness(witness, target):
+        raise ValueError("Witness does not match the challenge target")
+
+    return ShardProof(
+        target=target,
+        p=p,
+        witness=witness,
+    )
+
+
+# ---------------------------------------------------------------------
+# Merkle path verification
+# ---------------------------------------------------------------------
 
 def _root_from_path(
     leaf_hash: int,
     proof: MerkleProof,
 ) -> int | None:
     """
-    Reconstruct a Merkle root while checking path structure.
+    Reconstruct a Merkle root while validating path structure.
 
-    Assumes the tree duplicates the final node when a level has
-    an odd number of nodes, as in the current Merkle implementation.
+    Assumes the Merkle implementation duplicates the final node
+    when a level contains an odd number of nodes.
     """
     if not isinstance(proof, MerkleProof):
         return None
@@ -246,19 +190,18 @@ def _root_from_path(
     ):
         return None
 
-    if (
-        not isinstance(leaf_hash, int)
-        or isinstance(leaf_hash, bool)
-        or not 0 <= leaf_hash < FIELD_MODULUS
-    ):
+    if not _is_valid_field_element(leaf_hash):
         return None
 
-    current = leaf_hash
     siblings = proof.siblings
 
-    # A Merkle path has exactly one sibling per tree level.
+    if not isinstance(siblings, (tuple, list)):
+        return None
+
+    # Calculate the expected Merkle path depth.
     expected_depth = 0
     remaining = width
+
     while remaining > 1:
         expected_depth += 1
         remaining = (remaining + 1) // 2
@@ -266,30 +209,33 @@ def _root_from_path(
     if len(siblings) != expected_depth:
         return None
 
+    current = leaf_hash
+
     for sibling_hash, sibling_is_left in siblings:
-        if (
-            not isinstance(sibling_hash, int)
-            or isinstance(sibling_hash, bool)
-            or not 0 <= sibling_hash < FIELD_MODULUS
-            or not isinstance(sibling_is_left, bool)
-        ):
+        if not _is_valid_field_element(sibling_hash):
             return None
 
-        # Check that the direction matches the current leaf position.
-        expected_is_left = (index % 2 == 1)
+        if not isinstance(sibling_is_left, bool):
+            return None
+
+        expected_is_left = index % 2 == 1
+
         if sibling_is_left != expected_is_left:
             return None
 
-        # For an unpaired final node, the implementation duplicates
-        # that node as its own sibling.
-        if index % 2 == 0 and index == width - 1 and width % 2 == 1:
+        # Check duplicated final node for an odd-width tree.
+        if (
+            index % 2 == 0
+            and index == width - 1
+            and width % 2 == 1
+        ):
             if sibling_hash != current:
                 return None
 
         if sibling_is_left:
-            current = _hash_parent_checked(sibling_hash, current)
+            current = hash_parent(sibling_hash, current)
         else:
-            current = _hash_parent_checked(current, sibling_hash)
+            current = hash_parent(current, sibling_hash)
 
         index //= 2
         width = (width + 1) // 2
@@ -297,7 +243,257 @@ def _root_from_path(
     return current
 
 
-def _hash_parent_checked(left: int, right: int) -> int:
-    from engram.merkle import hash_parent
+# ---------------------------------------------------------------------
+# Single-proof verification
+# ---------------------------------------------------------------------
 
-    return hash_parent(left, right)
+def verify_shard_proof(
+    proof: ShardProof,
+    expected_root: int,
+    expected_target: ShardChallenge,
+    expected_p: bytes,
+    chunks_per_shard: tuple[int, ...],
+    total_shards: int,
+) -> bool:
+    """
+    Verify one challenged chunk against a trusted commitment root.
+
+    expected_root must come from the registered commitment,
+    not from an untrusted Storage Node.
+    """
+    if not isinstance(proof, ShardProof):
+        return False
+
+    if not _validate_target(expected_target):
+        return False
+
+    if not isinstance(expected_p, bytes) or len(expected_p) != 32:
+        return False
+
+    if proof.p != expected_p:
+        return False
+
+    if proof.target != expected_target:
+        return False
+
+    if not _is_valid_field_element(expected_root):
+        return False
+
+    if (
+        not isinstance(total_shards, int)
+        or isinstance(total_shards, bool)
+        or total_shards <= 0
+    ):
+        return False
+
+    if (
+        not isinstance(chunks_per_shard, tuple)
+        or len(chunks_per_shard) != total_shards
+    ):
+        return False
+
+    if any(
+        not isinstance(count, int)
+        or isinstance(count, bool)
+        or count <= 0
+        for count in chunks_per_shard
+    ):
+        return False
+
+    target = expected_target
+
+    if target.shard_index >= total_shards:
+        return False
+
+    if target.chunk_index >= chunks_per_shard[target.shard_index]:
+        return False
+
+    witness = proof.witness
+
+    if not _validate_witness(witness, target):
+        return False
+
+    chunk_path = witness.chunk_merkle_path
+    shard_path = witness.shard_merkle_path
+
+    # Check chunk Merkle path metadata.
+    if chunk_path.leaf_index != target.chunk_index:
+        return False
+
+    if chunk_path.leaf_count != chunks_per_shard[target.shard_index]:
+        return False
+
+    # Check shard Merkle path metadata.
+    if shard_path.leaf_index != target.shard_index:
+        return False
+
+    if shard_path.leaf_count != total_shards:
+        return False
+
+    try:
+        # Step 1: Reconstruct the selected shard's chunk-tree root.
+        chunk_root = _root_from_path(
+            hash_chunk(witness.chunk_data),
+            chunk_path,
+        )
+
+        if chunk_root is None:
+            return False
+
+        # Step 2: Verify that the shard root belongs to the
+        # registered global commitment.
+        return verify_hash_path(
+            chunk_root,
+            shard_path,
+            expected_root,
+        )
+
+    except (ValueError, TypeError, IndexError, OverflowError):
+        return False
+
+
+# ---------------------------------------------------------------------
+# Challenge-level verification
+# ---------------------------------------------------------------------
+
+def verify_challenge_proofs(
+    challenge_targets: tuple[ShardChallenge, ...],
+    proofs: tuple[ShardProof, ...],
+    registered_roots: Mapping[str, int],
+    expected_p: bytes,
+    layouts: Mapping[str, tuple[int, ...]],
+) -> ChallengeProofResult:
+    """
+    Verify and aggregate all proofs required by one challenge.
+
+    Checks:
+      1. Challenge targets are valid and unique.
+      2. Every target has exactly one proof.
+      3. No unexpected or duplicate proof is accepted.
+      4. Every commitment exists in the trusted registry.
+      5. Every individual proof is valid.
+
+    The whole challenge succeeds only if every required proof succeeds.
+    """
+    if not isinstance(challenge_targets, tuple):
+        raise ValueError("challenge_targets must be a tuple")
+
+    if not isinstance(proofs, tuple):
+        raise ValueError("proofs must be a tuple")
+
+    if not isinstance(expected_p, bytes) or len(expected_p) != 32:
+        raise ValueError("expected_p must be a 32-byte digest")
+
+    if not isinstance(registered_roots, Mapping):
+        raise TypeError("registered_roots must be a mapping")
+
+    if not isinstance(layouts, Mapping):
+        raise TypeError("layouts must be a mapping")
+
+    expected_count = len(challenge_targets)
+
+    # Validate challenge targets and detect duplicates.
+    target_set = set()
+
+    for target in challenge_targets:
+        if not _validate_target(target):
+            raise ValueError("Invalid challenge target")
+
+        if target in target_set:
+            raise ValueError("Duplicate challenge target")
+
+        target_set.add(target)
+
+    # Index proofs by their target.
+    proof_map: dict[ShardChallenge, ShardProof] = {}
+    failed_targets = set()
+
+    for proof in proofs:
+        if not isinstance(proof, ShardProof):
+            # A malformed proof cannot be associated with a target.
+            continue
+
+        target = proof.target
+
+        if not _validate_target(target):
+            continue
+
+        # Reject proofs that are not required by this challenge.
+        if target not in target_set:
+            continue
+
+        # Duplicate proof for the same target.
+        if target in proof_map:
+            failed_targets.add(target)
+            continue
+
+        proof_map[target] = proof
+
+    verified_count = 0
+
+    # Verify each required target.
+    for target in challenge_targets:
+        proof = proof_map.get(target)
+
+        if proof is None or target in failed_targets:
+            failed_targets.add(target)
+            continue
+
+        commitment_id = target.commitment_id
+
+        # Commitment must have been registered beforehand.
+        if commitment_id not in registered_roots:
+            failed_targets.add(target)
+            continue
+
+        if commitment_id not in layouts:
+            failed_targets.add(target)
+            continue
+
+        expected_root = registered_roots[commitment_id]
+        chunks_per_shard = layouts[commitment_id]
+
+        if not isinstance(chunks_per_shard, tuple):
+            failed_targets.add(target)
+            continue
+
+        total_shards = len(chunks_per_shard)
+
+        if verify_shard_proof(
+            proof=proof,
+            expected_root=expected_root,
+            expected_target=target,
+            expected_p=expected_p,
+            chunks_per_shard=chunks_per_shard,
+            total_shards=total_shards,
+        ):
+            verified_count += 1
+        else:
+            failed_targets.add(target)
+
+    # A challenge is valid only when every required target has
+    # exactly one valid proof and there are no unexpected proofs.
+    unexpected_proof_exists = any(
+        not isinstance(proof, ShardProof)
+        or not _validate_target(proof.target)
+        or proof.target not in target_set
+        for proof in proofs
+    )
+
+    valid = (
+        verified_count == expected_count
+        and not failed_targets
+        and len(proofs) == expected_count
+        and not unexpected_proof_exists
+    )
+
+    return ChallengeProofResult(
+        valid=valid,
+        verified_count=verified_count,
+        expected_count=expected_count,
+        failed_targets=tuple(
+            target
+            for target in challenge_targets
+            if target in failed_targets
+        ),
+    )

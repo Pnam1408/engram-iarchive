@@ -1,4 +1,4 @@
-
+#engram/merkle.py
 from dataclasses import dataclass
 
 import fast_poseidon
@@ -277,6 +277,16 @@ def verify_hash_path(
     except (TypeError, ValueError):
         return False
     if not 0 <= proof.leaf_index < proof.leaf_count:
+        return False
+
+    expected_depth = 0
+    width = proof.leaf_count
+    
+    while width > 1:
+        width = (width + 1) // 2
+        expected_depth += 1
+    
+    if len(proof.siblings) != expected_depth:
         return False
 
     current_hash = leaf_hash
