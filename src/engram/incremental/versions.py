@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import hashlib
-from typing import Any
+
+from .contracts import (
+    BufferAccess,
+    GenerationAccess,
+    StateAccess,
+    VersionAccess,
+)
+from .types import GenerationRecord, ObjectState, VersionEntry
 
 
-class VersionMixin:
+class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
     @staticmethod
-    def _generation_entries(generation: dict[str, Any]) -> list[dict[str, Any]]:
+    def _generation_entries(generation: GenerationRecord) -> list[VersionEntry]:
         """Validate and return entries belonging to one generation."""
         entries = generation.get("entries")
 
@@ -34,8 +41,8 @@ class VersionMixin:
 
     def _ordered_generations(
         self,
-        state: dict[str, Any],
-    ) -> list[dict[str, Any]]:
+        state: ObjectState,
+    ) -> list[GenerationRecord]:
         """Validate generation ranges and return them in version order."""
         generations = sorted(
             state["generations"],
@@ -70,11 +77,11 @@ class VersionMixin:
 
     def _validate_version_generation_mapping(
         self,
-        state: dict[str, Any],
-        generations: list[dict[str, Any]],
+        state: ObjectState,
+        generations: list[GenerationRecord],
     ) -> tuple[dict[int, str], list[int]]:
         """Check consistency between version records and generation entries."""
-        version_records: dict[int, dict[str, Any]] = {}
+        version_records: dict[int, VersionEntry] = {}
 
         for record in state["versions"]:
             version = int(record["version"])
@@ -151,19 +158,19 @@ class VersionMixin:
 
         return version_to_generation, pending_versions
 
-    def list_versions(self, object_id: str) -> list[dict[str, Any]]:
+    def list_versions(self, object_id: str) -> list[VersionEntry]:
         self.recover(object_id)
         state = self._load(object_id)
 
         return [
-            dict(version)
+            version.copy()
             for version in sorted(
                 state["versions"],
                 key=lambda item: int(item["version"]),
             )
         ]
 
-    def ListVersions(self, object_id: str) -> list[dict[str, Any]]:
+    def ListVersions(self, object_id: str) -> list[VersionEntry]:
         return self.list_versions(object_id)
 
     def get_version(self, object_id: str, version: int) -> bytes:

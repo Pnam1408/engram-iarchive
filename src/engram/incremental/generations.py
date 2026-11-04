@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import Any
 
 from engram.encryption import EncryptedPayload, decrypt, encrypt
 from engram.erasure_coding import decode, encode
 
-class GenerationMixin:
-    def _seal(self, object_id: str, state: dict[str, Any]) -> None:
+from .contracts import BufferAccess, GenerationAccess, StateAccess
+from .types import GenerationRecord, ObjectState, StagedGeneration, VersionEntry
+
+class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
+    def _seal(self, object_id: str, state: ObjectState) -> None:
         # A staged seal is resumed without needing the open buffer.
         if state.get("sealing") is not None:
             self._finish_seal(object_id, state)
@@ -21,7 +23,7 @@ class GenerationMixin:
             return
         
         plaintext = self._read_buffer(object_id, state)
-        entries = [dict(e) for e in opened["entries"]]
+        entries = [e.copy() for e in opened["entries"]]
         start_version = int(entries[0]["version"])
         end_version = int(entries[-1]["version"])
         chunk_root = self._chunk_root(plaintext, self.chunk_size)
@@ -33,7 +35,7 @@ class GenerationMixin:
         if state.get("sealing") is None:
             key = self._unb64(state["key_b64"])
             encrypted = encrypt(plaintext, key, associated_data=generation_id.encode())
-            state["sealing"] = {
+            staged: StagedGeneration = {
                 "generation_id": generation_id,
                 "start_version": start_version,
                 "end_version": end_version,
@@ -44,6 +46,7 @@ class GenerationMixin:
                 "ciphertext_size_bytes": len(encrypted.ciphertext),
                 "entries": entries,
             }
+            state["sealing"] = staged
             # Stage ciphertext in its own temporary file, not in the long-lived
             # metadata JSON, so large generations do not inflate state files.
             self._write_staging_payload(object_id, encrypted.ciphertext)
@@ -51,7 +54,7 @@ class GenerationMixin:
 
         self._finish_seal(object_id, state)
 
-    def _finish_seal(self, object_id: str, state: dict[str, Any]) -> None:
+    def _finish_seal(self, object_id: str, state: ObjectState) -> None:
         staged = state.get("sealing")
         if not staged:
             return
@@ -91,7 +94,7 @@ class GenerationMixin:
             raise RuntimeError("Generation plaintext commitment mismatch")
         self._validate_staged_generation(state, staged, plaintext)
 
-        generation = {
+        generation: GenerationRecord = {
             "generation_id": generation_id,
             "start_version": staged["start_version"],
             "end_version": staged["end_version"],
@@ -120,7 +123,7 @@ class GenerationMixin:
         # State is committed before deleting recoverable temporary payloads.
         self._cleanup_committed_temporary_files(object_id, state)
 
-    def recover(self, object_id: str) -> dict[str, Any]:
+    def recover(self, object_id: str) -> ObjectState:
         """Resume a staged seal after restart; otherwise preserve open generation."""
         state = self._load(object_id)
         if state.get("sealing"):
@@ -141,15 +144,19 @@ class GenerationMixin:
 
         opened = state["open"]
         current = time.time() if now is None else float(now)
-        if opened["entries"] and current - float(opened["started_at"]) >= self.max_wait_seconds:
+        if (
+            opened["entries"]
+            and opened["started_at"] is not None
+            and current - opened["started_at"] >= self.max_wait_seconds
+        ):
             self._seal(object_id, state)
             return True
         return False
 
     def _read_generation_plaintext(
         self,
-        state: dict[str, Any],
-        generation: dict[str, Any],
+        state: ObjectState,
+        generation: GenerationRecord,
     ) -> bytes:
         generation_id = generation["generation_id"]
 
@@ -213,8 +220,8 @@ class GenerationMixin:
 
     def _validate_staged_generation(
         self,
-        state: dict[str, Any],
-        staged: dict[str, Any],
+        state: ObjectState,
+        staged: StagedGeneration,
         plaintext: bytes,
     ) -> None:
         """Validate staged generation metadata before publishing/committing."""
@@ -238,7 +245,7 @@ class GenerationMixin:
             raise ValueError("Generation entries size does not match plaintext size")
 
         # Every staged entry must match an existing version record.
-        records = {}
+        records: dict[int, VersionEntry] = {}
 
         for record in state["versions"]:
             version = int(record["version"])

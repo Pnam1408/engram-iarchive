@@ -5,12 +5,12 @@ from __future__ import annotations
 import hashlib
 import time
 from pathlib import Path
-from typing import Any
 
 from engram.storage import StorageManager
 from .buffer import BufferMixin
 from .generations import GenerationMixin
 from .versions import VersionMixin
+from .types import VersionEntry
 
 class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
     """Append-only object store with per-object generation batching.
@@ -49,7 +49,7 @@ class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
         self.buffer_dir.mkdir(parents=True, exist_ok=True)
         self.staging_dir.mkdir(parents=True, exist_ok=True)
 
-    def append(self, object_id: str, delta: bytes) -> dict[str, Any]:
+    def append(self, object_id: str, delta: bytes) -> VersionEntry:
         """Append bytes to an object and assign a monotonically increasing version.
 
         The version remains PENDING until its generation has been stored and at
@@ -66,13 +66,17 @@ class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
 
         # If an open generation has aged out, seal it before accepting this delta.
         opened = state["open"]
-        if opened["entries"] and time.time() - float(opened["started_at"]) >= self.max_wait_seconds:
+        if (
+            opened["entries"]
+            and opened["started_at"] is not None
+            and time.time() - opened["started_at"] >= self.max_wait_seconds
+        ):
             self._seal(object_id, state)
             state = self._load(object_id)
             opened = state["open"]
 
         version = int(state["next_version"])
-        entry = {
+        entry: VersionEntry = {
             "version": version,
             "delta_size_bytes": len(delta),
             "delta_sha256": hashlib.sha256(delta).hexdigest(),
@@ -89,7 +93,7 @@ class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
         self._write_buffer(object_id, buffer)
         opened["buffer_size"] = len(buffer)
         opened["entries"].append(entry)
-        state["versions"].append(dict(entry))
+        state["versions"].append(entry.copy())
         state["next_version"] = version + 1
         self._save(object_id, state)
 
@@ -101,5 +105,5 @@ class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
         versions = self.list_versions(object_id)
         return next(v for v in versions if v["version"] == version)
 
-    def Append(self, object_id: str, delta: bytes) -> dict[str, Any]:
+    def Append(self, object_id: str, delta: bytes) -> VersionEntry:
         return self.append(object_id, delta)

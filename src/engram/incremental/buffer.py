@@ -10,16 +10,18 @@ from __future__ import annotations
 from pathlib import Path
 
 from .state import StateMixin
+from .contracts import BufferAccess
+from .types import ObjectState
 
 
-class BufferMixin(StateMixin):
+class BufferMixin(StateMixin, BufferAccess):
     def _buffer_path(self, object_id: str) -> Path:
         return self.buffer_dir / f"{self._object_key(object_id)}.buffer"
 
     def _staging_payload_path(self, object_id: str) -> Path:
         return self.staging_dir / f"{self._object_key(object_id)}.ciphertext"
 
-    def _read_buffer(self, object_id: str, state: dict) -> bytes:
+    def _read_buffer(self, object_id: str, state: ObjectState) -> bytes:
         """Read only the buffer bytes acknowledged by the metadata."""
         path = self._buffer_path(object_id)
         expected_size = int(state["open"].get("buffer_size", 0))
@@ -63,7 +65,7 @@ class BufferMixin(StateMixin):
             # state says the buffer/staging payload is no longer needed.
             pass
 
-    def _cleanup_committed_temporary_files(self, object_id: str, state: dict) -> None:
+    def _cleanup_committed_temporary_files(self, object_id: str, state: ObjectState) -> None:
         """Remove temporary files only when metadata says no work is pending."""
         if not state.get("sealing") and not state["open"].get("entries"):
             self._remove_if_exists(self._buffer_path(object_id))

@@ -8,12 +8,15 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from engram.encryption import generate_key
 
+from .contracts import BufferAccess, StateAccess, GenerationAccess
+from .types import LegacyOpenBuffer, LegacyStagedPayload, ObjectState
 
-class StateMixin:
+
+class StateMixin(StateAccess, BufferAccess, GenerationAccess):
     # Version 2 moves open-buffer bytes and staged ciphertext out of JSON metadata.
     STATE_VERSION = 2
 
@@ -43,18 +46,18 @@ class StateMixin:
             if temp_name and os.path.exists(temp_name):
                 os.unlink(temp_name)
 
-    def _save(self, object_id: str, state: dict[str, Any]) -> None:
+    def _save(self, object_id: str, state: ObjectState) -> None:
         state["object_id"] = object_id
         state["schema_version"] = self.STATE_VERSION
         raw = json.dumps(state, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self._atomic_write(self._state_path(object_id), raw)
 
-    def _load(self, object_id: str, *, create: bool = False) -> dict[str, Any]:
+    def _load(self, object_id: str, *, create: bool = False) -> ObjectState:
         path = self._state_path(object_id)
         if not path.exists():
             if not create:
                 raise KeyError(f"Unknown object: {object_id}")
-            state = {
+            state: ObjectState = {
                 "schema_version": self.STATE_VERSION,
                 "object_id": object_id,
                 # Simulation convenience only: production systems need KMS/secret storage.
@@ -69,7 +72,7 @@ class StateMixin:
             return state
 
         try:
-            state = json.loads(path.read_text(encoding="utf-8"))
+            state = cast(ObjectState, json.loads(path.read_text(encoding="utf-8")))
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError(f"Cannot read state for object {object_id!r}") from exc
 
@@ -79,15 +82,22 @@ class StateMixin:
         # One-time migration for state files created by the original MVP, where
         # both the open buffer and staged ciphertext were embedded as Base64 JSON.
         if state.get("schema_version") == 1:
-            opened = state.setdefault("open", {"started_at": None, "entries": []})
+            opened = cast(
+                LegacyOpenBuffer,
+                state.setdefault(
+                    "open",
+                    {"started_at": None, "buffer_size": 0, "entries": []},
+                ),
+            )
             legacy_buffer = self._unb64(opened.pop("buffer_b64", ""))
             opened["buffer_size"] = len(legacy_buffer)
             if legacy_buffer:
                 self._atomic_write(self._buffer_path(object_id), legacy_buffer)
 
             staged = state.get("sealing")
-            if staged and "ciphertext_b64" in staged:
-                legacy_ciphertext = self._unb64(staged.pop("ciphertext_b64"))
+            if staged is not None and "ciphertext_b64" in staged:
+                legacy_staged = cast(LegacyStagedPayload, staged)
+                legacy_ciphertext = self._unb64(legacy_staged.pop("ciphertext_b64"))
                 self._atomic_write(self._staging_payload_path(object_id), legacy_ciphertext)
             self._save(object_id, state)
 
