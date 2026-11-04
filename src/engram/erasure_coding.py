@@ -1,3 +1,4 @@
+# engram/erasure_coding.py
 from functools import lru_cache
 from dataclasses import dataclass
 from math import ceil
