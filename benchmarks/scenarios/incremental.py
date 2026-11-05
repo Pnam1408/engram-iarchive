@@ -31,7 +31,11 @@ from benchmarks.common.results import export_results
 from benchmarks.common.statistics import numeric_summary
 from benchmarks.common.timing import measure_ms
 from benchmarks.common.workload import generate_update_workload
-from engram.incremental.store import IncrementalStore
+from benchmarks.scenarios.incremental_challenge import benchmark_challenge
+from benchmarks.scenarios.incremental_instrumentation import (
+    TimedIncrementalStore,
+    STAGE_NAMES,
+)
 
 MIB = 1024 * 1024
 
@@ -121,25 +125,68 @@ def _summarize_rows(
 
     return output
 
+def measure_seal(
+    store: TimedIncrementalStore,
+    object_id: str,
+    run_index: int,
+    generation_index: int,
+    stage_rows: list[dict[str, Any]],
+) -> tuple[bool, float]:
+    store.reset_stage_timings()
+
+    sealed, seal_ms = measure_ms(store.seal, object_id)
+
+    if not sealed:
+        return False, seal_ms
+
+    timings = store.stage_timings.copy()
+
+    measured_stage_ms = sum(
+        timings.get(name, 0.0)
+        for name in STAGE_NAMES
+    )
+
+    stage_rows.append({
+        "scenario": "incremental",
+        "run_index": run_index,
+        "generation_index": generation_index,
+        **{
+            f"{name}_ms": timings.get(name, 0.0)
+            for name in STAGE_NAMES
+        },
+        "seal_total_ms": seal_ms,
+        "seal_unattributed_ms": max(
+            0.0, seal_ms - measured_stage_ms
+        ),
+    })
+
+    return True, seal_ms
 
 def run_sequence(
     initial_data: bytes,
     deltas: Sequence[bytes],
     run_index: int,
     args: argparse.Namespace,
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+) -> tuple[
+        list[dict[str, Any]], # version_rows
+        list[dict[str, Any]], # generation_rows
+        list[dict[str, Any]], # stage_rows
+        dict[str, Any], # sequence_row
+        dict[str, Any], # challenge_row
+    ]:
     """Execute one independent incremental-storage sequence."""
     object_id = f"benchmark-object-{uuid.uuid4().hex[:12]}"
     expected_snapshots = _build_expected_snapshots(initial_data, deltas)
 
     version_rows: list[dict[str, Any]] = []
     generation_rows: list[dict[str, Any]] = []
+    stage_rows: list[dict[str, Any]] = []
 
     # A unique temporary root isolates every measured sequence.
     with tempfile.TemporaryDirectory(
         prefix="engram_incremental_"
     ) as temp_dir:
-        store = IncrementalStore(
+        store = TimedIncrementalStore(
             Path(temp_dir) / "store",
             data_shards=args.data_shards,
             total_shards=args.total_shards,
@@ -166,7 +213,13 @@ def run_sequence(
         total_append_ms += append_ms
 
         initial_seal_ms = 0.0
-        sealed, initial_seal_ms = measure_ms(store.seal, object_id)
+        sealed, initial_seal_ms = measure_seal(
+            store,
+            object_id,
+            run_index,
+            generation_index=0,
+            stage_rows=stage_rows,
+        )
         if not sealed:
             raise RuntimeError("Initial generation was not sealed")
 
@@ -206,8 +259,12 @@ def run_sequence(
 
             seal_ms = 0.0
             if is_batch_end:
-                sealed, seal_ms = measure_ms(
-                    store.seal, object_id
+                sealed, seal_ms = measure_seal(
+                    store,
+                    object_id,
+                    run_index,
+                    generation_index=sealed_generation_count,
+                    stage_rows=stage_rows,
                 )
                 if not sealed:
                     raise RuntimeError(
@@ -335,6 +392,20 @@ def run_sequence(
             else None
         )
 
+        challenge_row = benchmark_challenge(
+            store=store,
+            object_id=object_id,
+            k=3,
+        )
+
+        challenge_row.update({
+            "scenario": "incremental",
+            "run_index": run_index,
+            "data_shards": args.data_shards,
+            "total_shards": args.total_shards,
+            "batch_size": args.batch_size,
+        })
+
         sequence_wall_ms = (
             time.perf_counter() - sequence_start
         ) * 1000.0
@@ -370,7 +441,7 @@ def run_sequence(
             "total_shards": args.total_shards,
         }
 
-    return version_rows, generation_rows, sequence_row
+    return version_rows, generation_rows, stage_rows, sequence_row, challenge_row
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -425,6 +496,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     version_rows: list[dict[str, Any]] = []
     generation_rows: list[dict[str, Any]] = []
     sequence_rows: list[dict[str, Any]] = []
+    stage_rows: list[dict[str, Any]] = []
+    challenge_rows: list[dict[str, Any]] = []
 
     # Warmup sequences use independent temporary stores and are excluded.
     for warmup_index in range(args.warmup):
@@ -436,7 +509,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     for run_index in range(args.repeat):
-        versions, generations, sequence = run_sequence(
+        versions, generations, stages, sequence, challenge = run_sequence(
             workload.initial_data,
             workload.deltas,
             run_index=run_index,
@@ -444,7 +517,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
         version_rows.extend(versions)
         generation_rows.extend(generations)
+        stage_rows.extend(stages)
         sequence_rows.append(sequence)
+        challenge_rows.append(challenge)
 
     version_summary = _summarize_rows(
         version_rows, "logical_version"
@@ -515,6 +590,13 @@ def main(argv: Sequence[str] | None = None) -> None:
                 else 0
             ),
         },
+        "stage_summary": {
+            stage: numeric_summary([
+                {f"{stage}_ms": row[f"{stage}_ms"]}
+                for row in stage_rows
+            ])
+            for stage in STAGE_NAMES
+        },
         "success": {
             "all_retrievals": all(
                 row["all_retrievals_success"]
@@ -550,6 +632,31 @@ def main(argv: Sequence[str] | None = None) -> None:
             },
         )
 
+    stage_export = None
+    if stage_rows:
+        stage_export = export_results(
+            output_dir=args.output_dir,
+            prefix="incremental_stages",
+            rows=stage_rows,
+            summary={
+                "benchmark": "B1_incremental_storage_stages",
+                "config": summary["config"],
+                "stage_summary": summary["stage_summary"],
+            },
+        )
+
+    challenge_export = None
+    if challenge_rows:
+        challenge_export = export_results(
+            output_dir=args.output_dir,
+            prefix="incremental_challenges",
+            rows=challenge_rows,
+            summary={
+                "benchmark": "B1_incremental_storage_challenges",
+                "config": summary["config"],
+            },
+        )
+
     sequence_export = export_results(
         output_dir=args.output_dir,
         prefix="incremental_sequences",
@@ -563,6 +670,12 @@ def main(argv: Sequence[str] | None = None) -> None:
     if generation_export is not None:
         print(f"Generation CSV:  {generation_export.csv_path}")
         print(f"Generation JSON: {generation_export.json_path}")
+    if stage_export is not None:
+        print(f"Stage CSV:  {stage_export.csv_path}")
+        print(f"Stage JSON: {stage_export.json_path}")
+    if challenge_export is not None:
+        print(f"Challenge CSV:  {challenge_export.csv_path}")
+        print(f"Challenge JSON: {challenge_export.json_path}")
     print(f"Sequence CSV:  {sequence_export.csv_path}")
     print(f"Sequence JSON: {sequence_export.json_path}")
 

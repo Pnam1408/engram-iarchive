@@ -104,6 +104,3 @@ class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
 
         versions = self.list_versions(object_id)
         return next(v for v in versions if v["version"] == version)
-
-    def Append(self, object_id: str, delta: bytes) -> VersionEntry:
-        return self.append(object_id, delta)

@@ -2,6 +2,7 @@
 """Version listing, retrieval, and history verification APIs."""
 from __future__ import annotations
 
+import copy
 import hashlib
 
 from .contracts import (
@@ -170,8 +171,19 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
             )
         ]
 
-    def ListVersions(self, object_id: str) -> list[VersionEntry]:
-        return self.list_versions(object_id)
+    def list_generations(self, object_id: str) -> list[GenerationRecord]:
+        """List committed generations in version order.
+
+        Recovery is performed before reading metadata. Only published,
+        reconstructible generations are returned; data still in the open
+        buffer or an unfinished sealing stage is not exposed as a generation.
+        Returned records are deep copies so callers cannot mutate store state.
+        """
+        self.recover(object_id)
+        state = self._load(object_id)
+        generations = self._ordered_generations(state)
+        return copy.deepcopy(generations)
+
 
     def get_version(self, object_id: str, version: int) -> bytes:
         """Retrieve a committed object version by replaying ordered generations."""
@@ -277,8 +289,6 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
             f"Version {version} could not be reconstructed"
         )
 
-    def GetVersion(self, object_id: str, version: int) -> bytes:
-        return self.get_version(object_id, version)
 
     def verify_history(self, object_id: str) -> bool:
         """Verify version continuity, generation metadata, and all delta hashes."""
@@ -404,5 +414,3 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
         ):
             return False
 
-    def VerifyHistory(self, object_id: str) -> bool:
-        return self.verify_history(object_id)

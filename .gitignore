@@ -9,3 +9,6 @@ storage_nodes
 *.wtns
 *.egg-info
 target
+*generated.circom
+.hypothesis
+data

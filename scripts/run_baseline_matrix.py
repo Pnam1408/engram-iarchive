@@ -1,3 +1,4 @@
+#scripts/run_baseline_matrix.py
 #!/usr/bin/env python3
 """Run the baseline matrix: 1 KiB/64 KiB/1 MiB × RS(4,8)/RS(6,8).
 
@@ -13,17 +14,19 @@ import subprocess
 import sys
 from pathlib import Path
 
+from benchmarks.common.workload import deterministic_payload
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKLOAD_DIR = ROOT / "data" / "benchmark_workloads"
 
 
-def deterministic_payload(size: int) -> bytes:
-    out = bytearray()
-    counter = 0
-    while len(out) < size:
-        out.extend(hashlib.sha256(f"engram-baseline-v1:{counter}".encode()).digest())
-        counter += 1
-    return bytes(out[:size])
+#def deterministic_payload(size: int) -> bytes:
+#    out = bytearray()
+#    counter = 0
+#    while len(out) < size:
+#        out.extend(hashlib.sha256(f"engram-baseline-v1:{counter}".encode()).digest())
+#        counter += 1
+#    return bytes(out[:size])
 
 
 def main() -> None:

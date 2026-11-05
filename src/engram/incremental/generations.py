@@ -6,94 +6,144 @@ import hashlib
 import time
 
 from engram.encryption import EncryptedPayload, decrypt, encrypt
-from engram.erasure_coding import decode, encode
+from engram.erasure_coding import EncodedShards, decode, encode
+from engram.storage import ChunkCommitment
 
 from .contracts import BufferAccess, GenerationAccess, StateAccess
 from .types import GenerationRecord, ObjectState, StagedGeneration, VersionEntry
 
 class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
     def _seal(self, object_id: str, state: ObjectState) -> None:
-        # A staged seal is resumed without needing the open buffer.
-        if state.get("sealing") is not None:
-            self._finish_seal(object_id, state)
-            return
+        """Prepare a generation, then run the remaining seal stages.
 
-        opened = state["open"]
-        if not opened["entries"]:
-            return
-        
-        plaintext = self._read_buffer(object_id, state)
-        entries = [e.copy() for e in opened["entries"]]
-        start_version = int(entries[0]["version"])
-        end_version = int(entries[-1]["version"])
-        chunk_root = self._chunk_root(plaintext, self.chunk_size)
-        object_hash = self._object_key(object_id)[:10]
-        generation_id = f"g_{object_hash}_{start_version}_{end_version}_{chunk_root[:16]}"
-        
-        # Stage the encrypted payload durably before publishing shards. If the
-        # process crashes, recover() can resume this exact sealing operation.
+        The individual stage methods are intentionally separate so benchmark
+        code can time them independently without putting timers in this class.
+        """
         if state.get("sealing") is None:
-            key = self._unb64(state["key_b64"])
-            encrypted = encrypt(plaintext, key, associated_data=generation_id.encode())
-            staged: StagedGeneration = {
-                "generation_id": generation_id,
-                "start_version": start_version,
-                "end_version": end_version,
-                "chunk_root": chunk_root,
-                "plaintext_sha256": hashlib.sha256(plaintext).hexdigest(),
-                "plaintext_size_bytes": len(plaintext),
-                "nonce_b64": self._b64(encrypted.nonce),
-                "ciphertext_size_bytes": len(encrypted.ciphertext),
-                "entries": entries,
-            }
-            state["sealing"] = staged
-            # Stage ciphertext in its own temporary file, not in the long-lived
-            # metadata JSON, so large generations do not inflate state files.
-            self._write_staging_payload(object_id, encrypted.ciphertext)
-            self._save(object_id, state)
-
+            opened = state["open"]
+            if not opened["entries"]:
+                return
+            plaintext = self._read_buffer(object_id, state)
+            entries = [entry.copy() for entry in opened["entries"]]
+            start_version = int(entries[0]["version"])
+            end_version = int(entries[-1]["version"])
+            chunk_root = self._chunk_root(plaintext, self.chunk_size)
+            object_hash = self._object_key(object_id)[:10]
+            generation_id = (
+                f"g_{object_hash}_{start_version}_{end_version}_{chunk_root[:16]}"
+            )
+            self._encrypt_generation(
+                object_id, state, plaintext, entries,
+                generation_id, start_version, end_version, chunk_root,
+            )
         self._finish_seal(object_id, state)
 
-    def _finish_seal(self, object_id: str, state: ObjectState) -> None:
-        staged = state.get("sealing")
-        if not staged:
-            return
-
-        generation_id = staged["generation_id"]
-        ciphertext = self._read_staging_payload(object_id)
-        if len(ciphertext) != int(staged.get("ciphertext_size_bytes", len(ciphertext))):
-            raise ValueError("Staged ciphertext size does not match metadata")
-        nonce = self._unb64(staged["nonce_b64"])
+    def _encrypt_generation(
+        self,
+        object_id: str,
+        state: ObjectState,
+        plaintext: bytes,
+        entries: list[VersionEntry],
+        generation_id: str,
+        start_version: int,
+        end_version: int,
+        chunk_root: str,
+    ) -> None:
+        """Encrypt plaintext and durably stage ciphertext + its metadata."""
         key = self._unb64(state["key_b64"])
-        
-        # StorageManager publishes its shard manifest last. If it already exists,
-        # this is a recovery after shard publication but before object-state commit.
-        try:
-            self.storage.get_chunk_metadata(generation_id)
-        except FileNotFoundError:
-            # No published chunk manifest means any same-ID shard files are
-            # leftovers from an interrupted write. They are not committed data.
-            for shard_index in range(self.total_shards):
-                orphan_path = self.storage._shard_path(generation_id, shard_index)
-                if orphan_path.exists():
-                    orphan_path.unlink()
-            encoded = encode(ciphertext, data_shards=self.data_shards, total_shards=self.total_shards)
-            self.storage.store_chunk(generation_id, encoded)
-        
+        encrypted = encrypt(
+            plaintext, key, associated_data=generation_id.encode()
+        )
+        staged: StagedGeneration = {
+            "generation_id": generation_id,
+            "start_version": start_version,
+            "end_version": end_version,
+            "chunk_root": chunk_root,
+            "plaintext_sha256": hashlib.sha256(plaintext).hexdigest(),
+            "plaintext_size_bytes": len(plaintext),
+            "nonce_b64": self._b64(encrypted.nonce),
+            "ciphertext_size_bytes": len(encrypted.ciphertext),
+            "entries": entries,
+        }
+        # Payload first, metadata second: recovery only trusts a staged record
+        # after the corresponding ciphertext has been durably written.
+        self._write_staging_payload(object_id, encrypted.ciphertext)
+        state["sealing"] = staged
+        self._save(object_id, state)
+
+    def _encode_generation(self, ciphertext: bytes) -> EncodedShards:
+        """Apply Reed-Solomon encoding; performs no filesystem writes."""
+        return encode(
+            ciphertext,
+            data_shards=self.data_shards,
+            total_shards=self.total_shards,
+        )
+
+    def _commit_generation(self, encoded: EncodedShards) -> ChunkCommitment:
+        """Build Merkle commitments for encoded shards (CPU-only stage)."""
+        return self.storage.build_commitment(list(encoded.shards))
+
+    def _write_generation(
+            self, 
+            generation_id: str, 
+            encoded: EncodedShards, 
+            commitment: ChunkCommitment
+        ) -> None:
+        """Write shard files and publish the manifest last."""
+        shards = list(encoded.shards)
+        shard_records = self.storage.write_shards(generation_id, shards)
+        manifest = self.storage.build_manifest(
+            chunk_id=generation_id,
+            encoded=encoded,
+            shards=shards,
+            shard_records=shard_records,
+            commitment=commitment,
+        )
+        self.storage.persist_manifest(generation_id, manifest)
+
+    def _verify_generation(
+        self,
+        object_id: str,
+        state: ObjectState,
+        staged: StagedGeneration,
+        ciphertext: bytes,
+    ) -> bytes:
+        """Read shards back, reconstruct ciphertext, and verify AEAD/content."""
+        generation_id = staged["generation_id"]
         available = self.storage.load_available_shards(generation_id)
         if len(available) < self.data_shards:
-            raise RuntimeError("Generation cannot be marked Available: insufficient reconstructible shards")
+            raise RuntimeError(
+                "Generation cannot be marked Available: "
+                "insufficient reconstructible shards"
+            )
         metadata = self.storage.get_chunk_metadata(generation_id)
-        restored = decode(available, metadata.original_size, self.data_shards, self.total_shards)
+        restored = decode(
+            available, metadata.original_size,
+            self.data_shards, self.total_shards,
+        )
         if restored != ciphertext:
             raise RuntimeError("Generation read-back verification failed")
-        # Verify AEAD and the staged plaintext before committing the version head.
-        plaintext = decrypt(EncryptedPayload(ciphertext=restored, nonce=nonce), key,
-                            associated_data=generation_id.encode())
+
+        nonce = self._unb64(staged["nonce_b64"])
+        key = self._unb64(state["key_b64"])
+        plaintext = decrypt(
+            EncryptedPayload(ciphertext=restored, nonce=nonce),
+            key,
+            associated_data=generation_id.encode(),
+        )
         if hashlib.sha256(plaintext).hexdigest() != staged["plaintext_sha256"]:
             raise RuntimeError("Generation plaintext commitment mismatch")
         self._validate_staged_generation(state, staged, plaintext)
+        return plaintext
 
+    def _publish_generation_state(
+        self,
+        object_id: str,
+        state: ObjectState,
+        staged: StagedGeneration,
+    ) -> None:
+        """Commit generation/version metadata after successful verification."""
+        generation_id = staged["generation_id"]
         generation: GenerationRecord = {
             "generation_id": generation_id,
             "start_version": staged["start_version"],
@@ -108,7 +158,6 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
             "total_shards": self.total_shards,
             "status": "Available",
         }
-        # Idempotent commit after a crash/restart.
         if not any(g["generation_id"] == generation_id for g in state["generations"]):
             state["generations"].append(generation)
         entry_by_version = {int(e["version"]): e for e in staged["entries"]}
@@ -120,8 +169,36 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
         state["open"] = {"started_at": None, "buffer_size": 0, "entries": []}
         state["sealing"] = None
         self._save(object_id, state)
-        # State is committed before deleting recoverable temporary payloads.
+        # State commit precedes cleanup so recovery can safely retry cleanup.
         self._cleanup_committed_temporary_files(object_id, state)
+
+    def _finish_seal(self, object_id: str, state: ObjectState) -> None:
+        """Resume the encode -> write -> verify -> commit stages idempotently."""
+        staged = state.get("sealing")
+        if not staged:
+            return
+
+        generation_id = staged["generation_id"]
+        ciphertext = self._read_staging_payload(object_id)
+        expected_size = int(staged["ciphertext_size_bytes"])
+        if len(ciphertext) != expected_size:
+            raise ValueError("Staged ciphertext size does not match metadata")
+
+        # A manifest means the shard write stage completed before a crash.
+        try:
+            self.storage.get_chunk_metadata(generation_id)
+        except FileNotFoundError:
+            # Remove uncommitted shard leftovers from an interrupted write.
+            for shard_index in range(self.total_shards):
+                orphan_path = self.storage._shard_path(generation_id, shard_index)
+                if orphan_path.exists():
+                    orphan_path.unlink()
+            encoded = self._encode_generation(ciphertext)
+            commitment = self._commit_generation(encoded)
+            self._write_generation(generation_id, encoded, commitment)
+
+        self._verify_generation(object_id, state, staged, ciphertext)
+        self._publish_generation_state(object_id, state, staged)
 
     def recover(self, object_id: str) -> ObjectState:
         """Resume a staged seal after restart; otherwise preserve open generation."""
