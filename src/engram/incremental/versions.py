@@ -5,6 +5,13 @@ from __future__ import annotations
 import copy
 import hashlib
 
+from engram.mmr import (
+    MMRAccumulator,
+    generate_consistency_proof,
+    generate_inclusion_proof,
+)
+from engram.mmr.hashing import canonical_manifest_bytes
+
 from .contracts import (
     BufferAccess,
     GenerationAccess,
@@ -12,6 +19,7 @@ from .contracts import (
     VersionAccess,
 )
 from .types import GenerationRecord, ObjectState, VersionEntry
+from .manifest import build_version_manifest
 
 
 class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
@@ -290,6 +298,43 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
         )
 
 
+    def get_mmr_root(self, object_id: str) -> str:
+        """Return the current per-object MMR root."""
+        if not self._state_path(object_id).exists():
+            return MMRAccumulator().root.hex()
+    
+        self.recover(object_id)
+        state = self._load(object_id)
+        return MMRAccumulator.from_dict(state["mmr"]).root.hex()
+
+    def get_inclusion_proof(self, object_id: str, version: int) -> dict[str, object]:
+        """Return an inclusion proof for one Available version (leaf index = version - 1)."""
+        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            raise ValueError("version must be a positive integer")
+        self.recover(object_id)
+        state = self._load(object_id)
+        record = next(
+            (item for item in state["versions"] if int(item["version"]) == version),
+            None,
+        )
+        if record is None:
+            raise KeyError(f"Version {version} does not exist for object {object_id!r}")
+        if record.get("status") != "Available":
+            raise RuntimeError(f"Version {version} is not Available")
+        accumulator = MMRAccumulator.from_dict(state["mmr"])
+        return generate_inclusion_proof(accumulator, version - 1)
+
+    def get_consistency_proof(
+        self, object_id: str, old_size: int
+    ) -> dict[str, object]:
+        """Prove that the current MMR extends a previously observed prefix size."""
+        if not isinstance(old_size, int) or isinstance(old_size, bool) or old_size < 0:
+            raise ValueError("old_size must be a non-negative integer")
+        self.recover(object_id)
+        state = self._load(object_id)
+        accumulator = MMRAccumulator.from_dict(state["mmr"])
+        return generate_consistency_proof(accumulator, old_size)
+
     def verify_history(self, object_id: str) -> bool:
         """Verify version continuity, generation metadata, and all delta hashes."""
         try:
@@ -400,6 +445,46 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
                         return False
 
             elif int(state["open"].get("buffer_size", 0)) != 0:
+                return False
+
+            # Independently rebuild the expected version manifests from the
+            # committed generation/version metadata and compare them byte-for-byte.
+            accumulator = MMRAccumulator.from_dict(state["mmr"])
+            if accumulator.leaf_count != len(committed_versions):
+                return False
+            if accumulator.last_version != (
+                committed_versions[-1] if committed_versions else 0
+            ):
+                return False
+
+            generation_by_id = {
+                generation["generation_id"]: generation
+                for generation in generations
+            }
+            records_by_version = {
+                int(record["version"]): record
+                for record in state["versions"]
+            }
+            expected_accumulator = MMRAccumulator()
+            for version in committed_versions:
+                record = records_by_version[version]
+                generation_id = version_to_generation[version]
+                generation = generation_by_id[generation_id]
+                expected_manifest = build_version_manifest(
+                    object_id, record, generation
+                )
+                expected_accumulator.append(expected_manifest, version=version)
+
+            stored_manifests = accumulator.to_dict()["manifests"]
+            expected_manifests = expected_accumulator.to_dict()["manifests"]
+            if len(stored_manifests) != len(expected_manifests):
+                return False
+            if any(
+                canonical_manifest_bytes(actual) != canonical_manifest_bytes(expected)
+                for actual, expected in zip(stored_manifests, expected_manifests, strict=True)
+            ):
+                return False
+            if accumulator.root != expected_accumulator.root:
                 return False
 
             return True

@@ -8,9 +8,12 @@ import time
 from engram.encryption import EncryptedPayload, decrypt, encrypt
 from engram.erasure_coding import EncodedShards, decode, encode
 from engram.storage import ChunkCommitment
+from engram.mmr import MMRAccumulator
+from engram.mmr.hashing import canonical_manifest_bytes
 
 from .contracts import BufferAccess, GenerationAccess, StateAccess
 from .types import GenerationRecord, ObjectState, StagedGeneration, VersionEntry
+from .manifest import build_version_manifest
 
 class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
     def _seal(self, object_id: str, state: ObjectState) -> None:
@@ -158,14 +161,55 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
             "total_shards": self.total_shards,
             "status": "Available",
         }
-        if not any(g["generation_id"] == generation_id for g in state["generations"]):
+        existing_generation = next(
+            (g for g in state["generations"] if g["generation_id"] == generation_id),
+            None,
+        )
+        if existing_generation is not None and existing_generation != generation:
+            raise ValueError(f"Conflicting committed generation metadata: {generation_id}")
+        if existing_generation is None:
             state["generations"].append(generation)
-        entry_by_version = {int(e["version"]): e for e in staged["entries"]}
-        for version_entry in state["versions"]:
-            version = int(version_entry["version"])
-            if version in entry_by_version:
-                version_entry["generation_id"] = generation_id
-                version_entry["status"] = "Available"
+
+        # Work on a reconstructed accumulator so any validation failure leaves
+        # the persisted MMR untouched. Manifest append and Available publication
+        # are committed together by the single atomic object-state write below.
+        accumulator = MMRAccumulator.from_dict(state["mmr"])
+        version_records = {
+            int(item["version"]): item for item in state["versions"]
+        }
+        if len(version_records) != len(state["versions"]):
+            raise ValueError("Duplicate version records during generation publication")
+
+        for staged_entry in sorted(staged["entries"], key=lambda item: int(item["version"])):
+            version = int(staged_entry["version"])
+            record = version_records.get(version)
+            if record is None:
+                raise ValueError(f"Version {version} is missing during publication")
+            if (
+                int(record["delta_size_bytes"]) != int(staged_entry["delta_size_bytes"])
+                or record["delta_sha256"] != staged_entry["delta_sha256"]
+            ):
+                raise ValueError(f"Version {version} metadata differs from staged entry")
+            manifest = build_version_manifest(object_id, staged_entry, generation)
+
+            if version == accumulator.last_version + 1:
+                accumulator.append(manifest, version=version)
+            elif version <= accumulator.last_version:
+                # Recovery may retry a publication already reflected in MMR.
+                committed_manifest = accumulator.to_dict()["manifests"][version - 1]
+                if canonical_manifest_bytes(committed_manifest) != canonical_manifest_bytes(manifest):
+                    raise ValueError(f"Conflicting MMR manifest for already committed version {version}")
+            else:
+                raise ValueError(
+                    f"MMR version gap: expected {accumulator.last_version + 1}, got {version}"
+                )
+
+            if record.get("generation_id") not in (None, generation_id):
+                raise ValueError(f"Version {version} already belongs to another generation")
+            record["generation_id"] = generation_id
+            record["status"] = "Available"
+
+        state["mmr"] = accumulator.to_dict()
         state["open"] = {"started_at": None, "buffer_size": 0, "entries": []}
         state["sealing"] = None
         self._save(object_id, state)

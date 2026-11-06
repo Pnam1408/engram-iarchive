@@ -35,7 +35,7 @@ class IncrementalBufferRecoveryTests(unittest.TestCase):
 
             with patch.object(
                 store.storage,
-                "store_chunk",
+                "write_shards",
                 side_effect=RuntimeError("simulated shard publication failure"),
             ):
                 with self.assertRaisesRegex(RuntimeError, "simulated shard publication failure"):

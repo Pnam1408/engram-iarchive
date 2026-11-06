@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
+from engram.mmr.types import MMRState
+
 
 VersionStatus = Literal["PENDING", "Available"]
 
@@ -57,6 +59,7 @@ class ObjectState(TypedDict):
     generations: list[GenerationRecord]
     open: OpenGeneration
     sealing: StagedGeneration | None
+    mmr: MMRState
 
 
 class LegacyOpenBuffer(TypedDict, total=False):

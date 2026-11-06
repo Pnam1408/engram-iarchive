@@ -11,14 +11,16 @@ from pathlib import Path
 from typing import cast
 
 from engram.encryption import generate_key
+from engram.mmr import MMRAccumulator
 
 from .contracts import BufferAccess, StateAccess, GenerationAccess
-from .types import LegacyOpenBuffer, LegacyStagedPayload, ObjectState
+from .types import GenerationRecord, LegacyOpenBuffer, LegacyStagedPayload, ObjectState, VersionEntry
+from .manifest import build_version_manifest
 
 
 class StateMixin(StateAccess, BufferAccess, GenerationAccess):
     # Version 2 moves open-buffer bytes and staged ciphertext out of JSON metadata.
-    STATE_VERSION = 2
+    STATE_VERSION = 3
 
     @staticmethod
     def _object_key(object_id: str) -> str:
@@ -52,12 +54,48 @@ class StateMixin(StateAccess, BufferAccess, GenerationAccess):
         raw = json.dumps(state, sort_keys=True, separators=(",", ":")).encode("utf-8")
         self._atomic_write(self._state_path(object_id), raw)
 
-    def _load(self, object_id: str, *, create: bool = False) -> ObjectState:
+    def _load(
+        self,
+        object_id: str,
+        *,
+        create: bool = False,
+    ) -> ObjectState:
         path = self._state_path(object_id)
+    
         if not path.exists():
             if not create:
                 raise KeyError(f"Unknown object: {object_id}")
-            state: ObjectState = {
+    
+            state = self._create_initial_state(object_id)
+            self._save(object_id, state)
+            return state
+    
+        try:
+            state = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ValueError(
+                f"Cannot read state for object {object_id!r}"
+            ) from exc
+    
+        if state.get("object_id") != object_id:
+            raise ValueError("Object state object_id mismatch")
+    
+        if state.get("schema_version") != self.STATE_VERSION:
+            raise ValueError(
+                f"Unsupported schema version: {state.get('schema_version')}; "
+                f"expected {self.STATE_VERSION}"
+            )
+    
+        if "mmr" not in state:
+            raise ValueError("Object state is missing its MMR")
+    
+        MMRAccumulator.from_dict(state["mmr"])
+    
+        return cast(ObjectState, state)
+
+    def _create_initial_state(self, object_id: str) -> ObjectState:
+        """Create a new object state with no versions or generations."""
+        return {
                 "schema_version": self.STATE_VERSION,
                 "object_id": object_id,
                 # Simulation convenience only: production systems need KMS/secret storage.
@@ -67,45 +105,8 @@ class StateMixin(StateAccess, BufferAccess, GenerationAccess):
                 "generations": [],
                 "open": {"started_at": None, "buffer_size": 0, "entries": []},
                 "sealing": None,
+                "mmr": MMRAccumulator().to_dict(),
             }
-            self._save(object_id, state)
-            return state
-
-        try:
-            state = cast(ObjectState, json.loads(path.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(f"Cannot read state for object {object_id!r}") from exc
-
-        if state.get("object_id") != object_id:
-            raise ValueError("Object state schema or object_id mismatch")
-
-        # One-time migration for state files created by the original MVP, where
-        # both the open buffer and staged ciphertext were embedded as Base64 JSON.
-        if state.get("schema_version") == 1:
-            opened = cast(
-                LegacyOpenBuffer,
-                state.setdefault(
-                    "open",
-                    {"started_at": None, "buffer_size": 0, "entries": []},
-                ),
-            )
-            legacy_buffer = self._unb64(opened.pop("buffer_b64", ""))
-            opened["buffer_size"] = len(legacy_buffer)
-            if legacy_buffer:
-                self._atomic_write(self._buffer_path(object_id), legacy_buffer)
-
-            staged = state.get("sealing")
-            if staged is not None and "ciphertext_b64" in staged:
-                legacy_staged = cast(LegacyStagedPayload, staged)
-                legacy_ciphertext = self._unb64(legacy_staged.pop("ciphertext_b64"))
-                self._atomic_write(self._staging_payload_path(object_id), legacy_ciphertext)
-            self._save(object_id, state)
-
-        if state.get("schema_version") != self.STATE_VERSION:
-            raise ValueError("Unsupported object state schema version")
-        if "buffer_b64" in state.get("open", {}):
-            raise ValueError("Legacy buffer field remains after state migration")
-        return state
 
     @staticmethod
     def _b64(data: bytes) -> str:
