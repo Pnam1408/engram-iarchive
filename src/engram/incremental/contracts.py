@@ -86,7 +86,11 @@ class GenerationAccess(Protocol):
         self, generation_id: str, encoded: EncodedShards, commitment: ChunkCommitment
     ) -> None: ...
     def _publish_generation_state(
-        self, object_id: str, state: ObjectState, staged: StagedGeneration
+        self,
+        object_id: str,
+        state: ObjectState,
+        staged: StagedGeneration,
+        staged_plaintext: bytes,
     ) -> None: ...
     def _verify_generation(
         self,

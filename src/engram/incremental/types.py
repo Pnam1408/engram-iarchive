@@ -12,7 +12,18 @@ VersionStatus = Literal["PENDING", "Available"]
 OperationType = Literal["append", "insert", "delete"]
 
 
-class VersionEntry(TypedDict):
+class VersionChunkMetadata(TypedDict, total=False):
+    """Optional logical chunk snapshot metadata for post-Phase-3 versions."""
+
+    chunk_manifest_root: str
+    chunk_count: int
+    content_size_bytes: int
+    content_sha256: str
+    chunker: str
+    chunker_config: dict[str, int]
+
+
+class VersionEntry(VersionChunkMetadata):
     version: int
     operation: OperationType
     offset: int | None

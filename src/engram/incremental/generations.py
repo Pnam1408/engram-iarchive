@@ -149,6 +149,7 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
         object_id: str,
         state: ObjectState,
         staged: StagedGeneration,
+        staged_plaintext: bytes,
     ) -> None:
         """Commit generation/version metadata after successful verification."""
         generation_id = staged["generation_id"]
@@ -176,6 +177,78 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
             )
         if existing_generation is None:
             state["generations"].append(generation)
+
+        # Rebuild the latest logical object from prior committed generations,
+        # then snapshot every newly published version into the chunk catalog.
+        # The catalog is encrypted at rest and content-addressed per object.
+        current = bytearray()
+        prior_generations = [
+            item
+            for item in state["generations"]
+            if item["generation_id"] != generation_id
+        ]
+        for prior in sorted(
+            prior_generations, key=lambda item: int(item["start_version"])
+        ):
+            prior_plaintext = self._read_generation_plaintext(state, prior)
+            cursor = 0
+            for prior_entry in prior["entries"]:
+                stored_size = int(
+                    prior_entry.get(
+                        "storage_size_bytes", prior_entry["delta_size_bytes"]
+                    )
+                )
+                stored = prior_plaintext[cursor : cursor + stored_size]
+                cursor += stored_size
+                if len(stored) != stored_size:
+                    raise ValueError(
+                        "Prior operation framing mismatch while building chunk manifest"
+                    )
+                operation = prior_entry.get("operation", "append")
+                payload = b"" if operation == "delete" else stored
+                if operation == "delete" and stored != b"\x00":
+                    raise ValueError(
+                        "Prior delete marker mismatch while building chunk manifest"
+                    )
+                if len(payload) != int(prior_entry["delta_size_bytes"]):
+                    raise ValueError("Prior operation payload size mismatch")
+                if hashlib.sha256(payload).hexdigest() != prior_entry["delta_sha256"]:
+                    raise ValueError("Prior operation payload hash mismatch")
+                self._apply_operation(current, prior_entry, payload)
+            if cursor != len(prior_plaintext):
+                raise ValueError("Prior generation has unreferenced plaintext bytes")
+        cursor = 0
+        for staged_entry in sorted(
+            staged["entries"], key=lambda item: int(item["version"])
+        ):
+            stored_size = int(
+                staged_entry.get("storage_size_bytes", staged_entry["delta_size_bytes"])
+            )
+            stored = staged_plaintext[cursor : cursor + stored_size]
+            cursor += stored_size
+            if len(stored) != stored_size:
+                raise ValueError(
+                    "Staged operation framing mismatch while building chunk manifest"
+                )
+            operation = staged_entry.get("operation", "append")
+            payload = b"" if operation == "delete" else stored
+            if operation == "delete" and stored != b"\x00":
+                raise ValueError("Delete marker mismatch while building chunk manifest")
+            if len(payload) != int(staged_entry["delta_size_bytes"]):
+                raise ValueError("Staged operation payload size mismatch")
+            if hashlib.sha256(payload).hexdigest() != staged_entry["delta_sha256"]:
+                raise ValueError("Staged operation payload hash mismatch")
+            self._apply_operation(current, staged_entry, payload)
+            chunk_metadata = self.chunk_catalog.put_version(
+                object_id,
+                int(staged_entry["version"]),
+                bytes(current),
+                self._unb64(state["key_b64"]),
+                parent_version=int(staged_entry["version"]) - 1 or None,
+            )
+            staged_entry.update(chunk_metadata)
+        if cursor != len(staged_plaintext):
+            raise ValueError("Staged generation has unreferenced plaintext bytes")
 
         # Work on a reconstructed accumulator so any validation failure leaves
         # the persisted MMR untouched. Manifest append and Available publication
@@ -210,7 +283,17 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
                 )
                 if record_value != staged_value:
                     raise ValueError(f"Version {version} {field} metadata mismatch")
-            manifest = build_version_manifest(object_id, staged_entry, generation)
+            for field in (
+                "chunk_manifest_root",
+                "chunk_count",
+                "content_size_bytes",
+                "content_sha256",
+                "chunker",
+                "chunker_config",
+            ):
+                if field in staged_entry:
+                    record[field] = staged_entry[field]
+            manifest = build_version_manifest(object_id, record, generation)
 
             if version == accumulator.last_version + 1:
                 accumulator.append(manifest, version=version)
@@ -267,8 +350,10 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
             commitment = self._commit_generation(encoded)
             self._write_generation(generation_id, encoded, commitment)
 
-        self._verify_generation(object_id, state, staged, ciphertext)
-        self._publish_generation_state(object_id, state, staged)
+        verified_plaintext = self._verify_generation(
+            object_id, state, staged, ciphertext
+        )
+        self._publish_generation_state(object_id, state, staged, verified_plaintext)
 
     def recover(self, object_id: str) -> ObjectState:
         """Resume a staged seal after restart; otherwise preserve open generation."""

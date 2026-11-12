@@ -45,8 +45,9 @@ def build_version_manifest(
     ):
         raise ValueError(f"Version {version} is outside its generation range")
     operation = entry.get("operation", "append")
+    has_chunk_manifest = entry.get("chunk_manifest_root") is not None
     manifest = {
-        "schema_version": 1,
+        "schema_version": 2 if has_chunk_manifest else 1,
         "object_id": object_id,
         "version": version,
         "parent_version": version - 1 if version > 1 else None,
@@ -63,6 +64,19 @@ def build_version_manifest(
                 "offset": int(entry["offset"]),
                 "delete_length": int(entry.get("delete_length", 0)),
                 "storage_size_bytes": int(entry["storage_size_bytes"]),
+            }
+        )
+    # New version leaves additionally commit the immutable logical chunk manifest.
+    # Legacy leaves omit these fields and retain their original canonical encoding.
+    if entry.get("chunk_manifest_root") is not None:
+        manifest.update(
+            {
+                "chunk_manifest_root": entry["chunk_manifest_root"],
+                "chunk_count": int(entry["chunk_count"]),
+                "content_size_bytes": int(entry["content_size_bytes"]),
+                "content_sha256": entry["content_sha256"],
+                "chunker": entry["chunker"],
+                "chunker_config": entry["chunker_config"],
             }
         )
     return manifest

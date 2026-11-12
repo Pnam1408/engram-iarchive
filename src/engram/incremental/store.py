@@ -12,6 +12,8 @@ from .buffer import BufferMixin
 from .generations import GenerationMixin
 from .versions import VersionMixin
 from .types import OperationType, VersionEntry
+from engram.chunking import Chunker, FixedSizeChunker
+from .chunk_manifest import ChunkManifestStore
 
 
 class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
@@ -30,6 +32,7 @@ class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
         chunk_size: int = 4096,
         size_threshold: int = 64 * 1024,
         max_wait_seconds: float = 10.0,
+        chunker: Chunker | None = None,
     ) -> None:
         if not (1 <= data_shards < total_shards <= 255):
             raise ValueError("Require 1 <= data_shards < total_shards <= 255")
@@ -48,6 +51,10 @@ class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
         self.data_shards = data_shards
         self.total_shards = total_shards
         self.chunk_size = chunk_size
+        self.chunker = chunker or FixedSizeChunker(chunk_size)
+        self.chunk_catalog = ChunkManifestStore(
+            self.root_dir / "chunk_catalog", self.chunker
+        )
         self.size_threshold = size_threshold
         self.max_wait_seconds = float(max_wait_seconds)
         self.state_dir.mkdir(parents=True, exist_ok=True)

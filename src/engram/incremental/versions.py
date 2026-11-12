@@ -6,6 +6,8 @@ from __future__ import annotations
 import copy
 import hashlib
 
+from cryptography.exceptions import InvalidTag
+
 from engram.mmr import (
     MMRAccumulator,
     generate_consistency_proof,
@@ -347,6 +349,67 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
                     return bytes(current)
         raise RuntimeError(f"Version {version} could not be reconstructed")
 
+    def get_version_from_chunks(self, object_id: str, version: int) -> bytes:
+        """Reconstruct a version from its encrypted content-addressed chunks."""
+        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+            raise ValueError("version must be a positive integer")
+        self.recover(object_id)
+        state = self._load(object_id)
+        record = next(
+            (item for item in state["versions"] if int(item["version"]) == version),
+            None,
+        )
+        if record is None:
+            raise KeyError(f"Version {version} does not exist for object {object_id!r}")
+        if record.get("status") != "Available":
+            raise RuntimeError(f"Version {version} is not Available")
+        if not record.get("chunk_manifest_root"):
+            raise RuntimeError(f"Version {version} predates chunk-manifest indexing")
+        manifest = self.chunk_catalog._read_manifest(object_id, version)
+        for field in (
+            "chunk_manifest_root",
+            "chunk_count",
+            "content_size_bytes",
+            "content_sha256",
+            "chunker",
+            "chunker_config",
+        ):
+            if record.get(field) != manifest.get(field):
+                raise ValueError(f"Version {version} chunk manifest {field} mismatch")
+        return self.chunk_catalog.get_version(
+            object_id, version, self._unb64(state["key_b64"])
+        )
+
+    def get_chunk_manifest(self, object_id: str, version: int) -> dict[str, object]:
+        """Return a defensive copy of the persisted logical chunk manifest."""
+        import copy
+
+        self.recover(object_id)
+        state = self._load(object_id)
+        record = next(
+            (item for item in state["versions"] if int(item["version"]) == version),
+            None,
+        )
+        if record is None or record.get("status") != "Available":
+            raise KeyError(f"Available version {version} does not exist")
+        path = self.chunk_catalog._manifest_path(object_id, version)
+        return copy.deepcopy(self.chunk_catalog._read_manifest(object_id, version))
+
+    def get_chunk_storage_stats(self, object_id: str, version: int) -> dict[str, int]:
+        """Report logical bytes and unique encrypted chunk bytes for this object."""
+        manifest = self.get_chunk_manifest(object_id, version)
+        return {
+            "content_size_bytes": int(manifest["content_size_bytes"]),
+            "logical_chunk_bytes": self.chunk_catalog.logical_chunk_bytes(
+                object_id, version
+            ),
+            "unique_encrypted_chunk_bytes": self.chunk_catalog.unique_chunk_bytes(
+                object_id
+            ),
+            "chunk_count": int(manifest["chunk_count"]),
+            "unique_chunk_count": self.chunk_catalog.unique_chunk_count(object_id),
+        }
+
     def get_mmr_root(self, object_id: str) -> str:
         """Return the current per-object MMR root."""
         if not self._state_path(object_id).exists():
@@ -553,6 +616,23 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
                 expected_manifest = build_version_manifest(
                     object_id, record, generation
                 )
+                if record.get("chunk_manifest_root") is not None:
+                    key = self._unb64(state["key_b64"])
+                    if not self.chunk_catalog.verify_version(object_id, version, key):
+                        return False
+                    chunk_manifest = self.chunk_catalog._read_manifest(
+                        object_id, version
+                    )
+                    for field in (
+                        "chunk_manifest_root",
+                        "chunk_count",
+                        "content_size_bytes",
+                        "content_sha256",
+                        "chunker",
+                        "chunker_config",
+                    ):
+                        if record.get(field) != chunk_manifest.get(field):
+                            return False
                 expected_accumulator.append(expected_manifest, version=version)
 
             stored_manifests = accumulator.to_dict()["manifests"]
@@ -578,5 +658,6 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
             KeyError,
             TypeError,
             IndexError,
+            InvalidTag,
         ):
             return False
