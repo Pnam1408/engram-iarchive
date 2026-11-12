@@ -108,3 +108,144 @@ def _validate_nonnegative_size(size: int) -> None:
 def _validate_positive_size(size: int, name: str) -> None:
     if size <= 0:
         raise ValueError(f"{name} must be > 0")
+
+
+@dataclass(frozen=True)
+class EditOperation:
+    """One deterministic byte-range edit against the preceding version."""
+
+    index: int
+    operation: str
+    offset: int
+    payload: bytes = b""
+    delete_length: int = 0
+
+    @property
+    def payload_size_bytes(self) -> int:
+        return len(self.payload)
+
+
+@dataclass(frozen=True)
+class InsertDeleteWorkload:
+    """Initial object, ordered edits, and expected immutable snapshots."""
+
+    initial_data: bytes
+    operations: tuple[EditOperation, ...]
+    snapshots: tuple[bytes, ...]
+    seed: int
+    pattern: str
+
+    @property
+    def final_size_bytes(self) -> int:
+        return len(self.snapshots[-1])
+
+    @property
+    def total_inserted_bytes(self) -> int:
+        return sum(
+            len(op.payload) for op in self.operations if op.operation == "insert"
+        )
+
+    @property
+    def total_deleted_bytes(self) -> int:
+        return sum(
+            op.delete_length for op in self.operations if op.operation == "delete"
+        )
+
+
+def generate_insert_delete_workload(
+    initial_size: int,
+    insert_size: int,
+    delete_size: int,
+    operations: int,
+    *,
+    seed: int = 20261112,
+    pattern: str = "mixed",
+) -> InsertDeleteWorkload:
+    """Build a deterministic Insert/Delete trace and its expected snapshots.
+
+    ``pattern`` controls edit locations:
+    - ``mixed`` cycles through beginning, middle, end, and deterministic
+      distributed positions; useful as the default aggregate workload.
+    - ``beginning``, ``middle``, ``end`` stress a fixed region.
+    - ``distributed`` uses seeded positions across the current object.
+    - ``localized`` repeatedly edits a narrow region around the midpoint.
+
+    Operations alternate Insert and Delete, beginning with Insert. Delete
+    lengths are clipped to preserve at least one byte in the object.
+    Offsets are materialized against the exact preceding snapshot, so every
+    chunker receives the same byte-for-byte operation trace.
+    """
+    _validate_positive_size(initial_size, "initial_size")
+    _validate_positive_size(insert_size, "insert_size")
+    _validate_positive_size(delete_size, "delete_size")
+    if operations < 1:
+        raise ValueError("operations must be >= 1")
+    patterns = {"mixed", "beginning", "middle", "end", "distributed", "localized"}
+    if pattern not in patterns:
+        raise ValueError(f"pattern must be one of {sorted(patterns)}")
+    if initial_size < 2:
+        raise ValueError("initial_size must be >= 2 for insert/delete workloads")
+
+    current = bytearray(deterministic_bytes(initial_size, seed))
+    initial = bytes(current)
+    snapshots: list[bytes] = [initial]
+    edits: list[EditOperation] = []
+    anchors = (0.0, 0.5, 1.0, 0.25, 0.75)
+
+    for index in range(operations):
+        is_insert = index % 2 == 0
+        if pattern == "mixed":
+            fraction = anchors[index % len(anchors)]
+        elif pattern == "beginning":
+            # Delete just after the inserted prefix rather than immediately
+            # deleting the bytes that were inserted by the preceding version.
+            fraction = 0.0 if is_insert else 0.10
+        elif pattern == "middle":
+            fraction = 0.50 if is_insert else 0.60
+        elif pattern == "end":
+            fraction = 1.0 if is_insert else 0.90
+        elif pattern == "localized":
+            # Keep both edit types in a narrow central band but offset their
+            # positions so deletes do not simply undo the preceding insert.
+            fraction = (
+                (0.48 + (0.02 * ((index % 5) / 4)))
+                if is_insert
+                else (0.53 + (0.02 * ((index % 5) / 4)))
+            )
+        else:
+            digest = hashlib.sha256(
+                f"engram-edit-position-v1:{seed}:{index}".encode()
+            ).digest()
+            fraction = int.from_bytes(digest[:8], "big") / float(2**64 - 1)
+
+        offset = min(len(current), int(fraction * len(current)))
+        if is_insert:
+            payload = deterministic_bytes(insert_size, seed + 10_000 + index)
+            current[offset:offset] = payload
+            edit = EditOperation(
+                index=index,
+                operation="insert",
+                offset=offset,
+                payload=payload,
+            )
+        else:
+            # Preserve a non-empty object, avoiding degenerate later offsets.
+            actual_length = min(delete_size, max(1, len(current) - 1))
+            offset = min(offset, len(current) - actual_length)
+            del current[offset : offset + actual_length]
+            edit = EditOperation(
+                index=index,
+                operation="delete",
+                offset=offset,
+                delete_length=actual_length,
+            )
+        edits.append(edit)
+        snapshots.append(bytes(current))
+
+    return InsertDeleteWorkload(
+        initial_data=initial,
+        operations=tuple(edits),
+        snapshots=tuple(snapshots),
+        seed=seed,
+        pattern=pattern,
+    )
