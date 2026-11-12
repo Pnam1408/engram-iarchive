@@ -16,6 +16,9 @@ test = [
     "pytest",
     "hypothesis",
 ]
+rocksdb = [
+    "rocksdict",
+]
 
 [project.scripts]
 engram-benchmark = "engram.experiment:main"
