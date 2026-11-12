@@ -1,4 +1,3 @@
-
 import pytest
 
 from cryptography.exceptions import InvalidTag

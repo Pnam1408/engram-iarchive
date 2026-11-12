@@ -1,4 +1,3 @@
-
 from dataclasses import replace
 
 import pytest
@@ -65,12 +64,10 @@ def proof_context(tmp_path):
 
     for shard_index in range(3):
         for chunk_index in range(3):
-            chunk_data, chunk_path, shard_path = (
-                storage.get_chunk_response(
-                    chunk_id=chunk_id,
-                    shard_index=shard_index,
-                    chunk_index=chunk_index,
-                )
+            chunk_data, chunk_path, shard_path = storage.get_chunk_response(
+                chunk_id=chunk_id,
+                shard_index=shard_index,
+                chunk_index=chunk_index,
             )
 
             witnesses[(shard_index, chunk_index)] = ShardWitness(
@@ -94,11 +91,7 @@ def proof_context(tmp_path):
 
 @pytest.fixture
 def challenge_p():
-    return derive_p(
-        "block_hash=abc", 
-        "miner_id=miner-001", 
-        "epoch_id=epoch-001"
-    )
+    return derive_p("block_hash=abc", "miner_id=miner-001", "epoch_id=epoch-001")
 
 
 def make_proof(target, witness, p):
@@ -123,6 +116,7 @@ def verify_single(context, target, proof, p):
 # ---------------------------------------------------------------------
 # Single proof verification
 # ---------------------------------------------------------------------
+
 
 def test_verify_valid_shard_proof(proof_context, challenge_p):
     context = proof_context
@@ -171,9 +165,7 @@ def test_verify_rejects_tampered_chunk_data(
 
     witness = context["witnesses"][(0, 0)]
 
-    tampered_data = bytes(
-        [witness.chunk_data[0] ^ 0xFF]
-    ) + witness.chunk_data[1:]
+    tampered_data = bytes([witness.chunk_data[0] ^ 0xFF]) + witness.chunk_data[1:]
 
     tampered_witness = replace(
         witness,
@@ -357,6 +349,7 @@ def test_verify_rejects_wrong_commitment_root(
 # Batch challenge verification
 # ---------------------------------------------------------------------
 
+
 def test_verify_multiple_valid_proofs(
     proof_context,
     challenge_p,
@@ -372,9 +365,7 @@ def test_verify_multiple_valid_proofs(
     proofs = [
         make_proof(
             target,
-            context["witnesses"][
-                (target.shard_index, target.chunk_index)
-            ],
+            context["witnesses"][(target.shard_index, target.chunk_index)],
             challenge_p,
         )
         for target in targets

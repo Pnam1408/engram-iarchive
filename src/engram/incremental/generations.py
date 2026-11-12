@@ -1,5 +1,6 @@
-#engram/incremental/generations.py
+# engram/incremental/generations.py
 """Generation batching, sealing, publication, and crash recovery."""
+
 from __future__ import annotations
 
 import hashlib
@@ -14,6 +15,7 @@ from engram.mmr.hashing import canonical_manifest_bytes
 from .contracts import BufferAccess, GenerationAccess, StateAccess
 from .types import GenerationRecord, ObjectState, StagedGeneration, VersionEntry
 from .manifest import build_version_manifest
+
 
 class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
     def _seal(self, object_id: str, state: ObjectState) -> None:
@@ -36,8 +38,14 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
                 f"g_{object_hash}_{start_version}_{end_version}_{chunk_root[:16]}"
             )
             self._encrypt_generation(
-                object_id, state, plaintext, entries,
-                generation_id, start_version, end_version, chunk_root,
+                object_id,
+                state,
+                plaintext,
+                entries,
+                generation_id,
+                start_version,
+                end_version,
+                chunk_root,
             )
         self._finish_seal(object_id, state)
 
@@ -54,9 +62,7 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
     ) -> None:
         """Encrypt plaintext and durably stage ciphertext + its metadata."""
         key = self._unb64(state["key_b64"])
-        encrypted = encrypt(
-            plaintext, key, associated_data=generation_id.encode()
-        )
+        encrypted = encrypt(plaintext, key, associated_data=generation_id.encode())
         staged: StagedGeneration = {
             "generation_id": generation_id,
             "start_version": start_version,
@@ -87,11 +93,8 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
         return self.storage.build_commitment(list(encoded.shards))
 
     def _write_generation(
-            self, 
-            generation_id: str, 
-            encoded: EncodedShards, 
-            commitment: ChunkCommitment
-        ) -> None:
+        self, generation_id: str, encoded: EncodedShards, commitment: ChunkCommitment
+    ) -> None:
         """Write shard files and publish the manifest last."""
         shards = list(encoded.shards)
         shard_records = self.storage.write_shards(generation_id, shards)
@@ -121,8 +124,10 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
             )
         metadata = self.storage.get_chunk_metadata(generation_id)
         restored = decode(
-            available, metadata.original_size,
-            self.data_shards, self.total_shards,
+            available,
+            metadata.original_size,
+            self.data_shards,
+            self.total_shards,
         )
         if restored != ciphertext:
             raise RuntimeError("Generation read-back verification failed")
@@ -166,7 +171,9 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
             None,
         )
         if existing_generation is not None and existing_generation != generation:
-            raise ValueError(f"Conflicting committed generation metadata: {generation_id}")
+            raise ValueError(
+                f"Conflicting committed generation metadata: {generation_id}"
+            )
         if existing_generation is None:
             state["generations"].append(generation)
 
@@ -174,13 +181,13 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
         # the persisted MMR untouched. Manifest append and Available publication
         # are committed together by the single atomic object-state write below.
         accumulator = MMRAccumulator.from_dict(state["mmr"])
-        version_records = {
-            int(item["version"]): item for item in state["versions"]
-        }
+        version_records = {int(item["version"]): item for item in state["versions"]}
         if len(version_records) != len(state["versions"]):
             raise ValueError("Duplicate version records during generation publication")
 
-        for staged_entry in sorted(staged["entries"], key=lambda item: int(item["version"])):
+        for staged_entry in sorted(
+            staged["entries"], key=lambda item: int(item["version"])
+        ):
             version = int(staged_entry["version"])
             record = version_records.get(version)
             if record is None:
@@ -189,7 +196,9 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
                 int(record["delta_size_bytes"]) != int(staged_entry["delta_size_bytes"])
                 or record["delta_sha256"] != staged_entry["delta_sha256"]
             ):
-                raise ValueError(f"Version {version} metadata differs from staged entry")
+                raise ValueError(
+                    f"Version {version} metadata differs from staged entry"
+                )
             manifest = build_version_manifest(object_id, staged_entry, generation)
 
             if version == accumulator.last_version + 1:
@@ -197,15 +206,21 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
             elif version <= accumulator.last_version:
                 # Recovery may retry a publication already reflected in MMR.
                 committed_manifest = accumulator.to_dict()["manifests"][version - 1]
-                if canonical_manifest_bytes(committed_manifest) != canonical_manifest_bytes(manifest):
-                    raise ValueError(f"Conflicting MMR manifest for already committed version {version}")
+                if canonical_manifest_bytes(
+                    committed_manifest
+                ) != canonical_manifest_bytes(manifest):
+                    raise ValueError(
+                        f"Conflicting MMR manifest for already committed version {version}"
+                    )
             else:
                 raise ValueError(
                     f"MMR version gap: expected {accumulator.last_version + 1}, got {version}"
                 )
 
             if record.get("generation_id") not in (None, generation_id):
-                raise ValueError(f"Version {version} already belongs to another generation")
+                raise ValueError(
+                    f"Version {version} already belongs to another generation"
+                )
             record["generation_id"] = generation_id
             record["status"] = "Available"
 
@@ -253,7 +268,9 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
         self._cleanup_committed_temporary_files(object_id, state)
         return state
 
-    def seal_expired_generations(self, object_id: str, *, now: float | None = None) -> bool:
+    def seal_expired_generations(
+        self, object_id: str, *, now: float | None = None
+    ) -> bool:
         """Seal an open generation whose maximum waiting time has elapsed.
 
         Call from a scheduler/worker if the object must seal even when no more
@@ -292,9 +309,7 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
             raise ValueError(f"Invalid Reed-Solomon configuration: {generation_id}")
 
         if len(available) < data_shards:
-            raise RuntimeError(
-                f"Generation {generation_id} is not reconstructible"
-            )
+            raise RuntimeError(f"Generation {generation_id} is not reconstructible")
 
         ciphertext = decode(
             available,
@@ -313,19 +328,13 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
         )
 
         if len(plaintext) != int(generation["plaintext_size_bytes"]):
-            raise ValueError(
-                f"Generation plaintext size mismatch: {generation_id}"
-            )
+            raise ValueError(f"Generation plaintext size mismatch: {generation_id}")
 
         if hashlib.sha256(plaintext).hexdigest() != generation["plaintext_sha256"]:
-            raise ValueError(
-                f"Generation content hash mismatch: {generation_id}"
-            )
+            raise ValueError(f"Generation content hash mismatch: {generation_id}")
 
         if self._chunk_root(plaintext, chunk_size) != generation["chunk_root"]:
-            raise ValueError(
-                f"Generation chunk root mismatch: {generation_id}"
-            )
+            raise ValueError(f"Generation chunk root mismatch: {generation_id}")
 
         return plaintext
 

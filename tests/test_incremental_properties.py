@@ -1,11 +1,10 @@
-#tests/test_incremental_properties.py
+# tests/test_incremental_properties.py
 import tempfile
 import unittest
 
 from hypothesis import given, settings, strategies as st
 
 from engram.incremental import IncrementalStore
-
 
 # Generate random operations:
 # - append: append a non-empty delta
@@ -70,9 +69,7 @@ class IncrementalPropertyTests(unittest.TestCase):
                     store.get_version("doc", expected_version)
 
             else:
-                self.fail(
-                    f"Unexpected version status: {record['status']}"
-                )
+                self.fail(f"Unexpected version status: {record['status']}")
 
         # History must remain valid after every operation.
         self.assertTrue(store.verify_history("doc"))
@@ -99,7 +96,7 @@ class IncrementalPropertyTests(unittest.TestCase):
             object_created = False
 
             for operation, payload in operations:
-            
+
                 if operation == "append":
                     result = store.append("doc", payload)
                     deltas.append(payload)
@@ -129,22 +126,22 @@ class IncrementalPropertyTests(unittest.TestCase):
 
             if object_created:
                 store.seal("doc")
-            
+
                 versions = store.list_versions("doc")
-            
+
                 self.assertEqual(len(versions), len(deltas))
-            
+
                 for version, record in enumerate(versions, start=1):
                     self.assertEqual(record["version"], version)
                     self.assertEqual(record["status"], "Available")
-            
+
                     expected_snapshot = b"".join(deltas[:version])
-            
+
                     self.assertEqual(
                         store.get_version("doc", version),
                         expected_snapshot,
                     )
-            
+
                 self.assertTrue(store.verify_history("doc"))
             else:
                 self.assertEqual(deltas, [])

@@ -1,8 +1,7 @@
-#engram/merkle.py
+# engram/merkle.py
 from dataclasses import dataclass
 
 import fast_poseidon
-
 
 FIELD_MODULUS = (
     21888242871839275222246405745257275088548364400416034343698204186575808495617
@@ -14,6 +13,7 @@ NODE_DOMAIN = 2
 
 Hash = int
 
+
 class _RustPoseidon:
     """Adapter giữ nguyên API hash(n, inputs) của backend cũ."""
 
@@ -21,9 +21,7 @@ class _RustPoseidon:
         if n != len(inputs):
             raise ValueError("n must equal the number of inputs")
 
-        return int(
-            fast_poseidon.hash_elements([str(x) for x in inputs])
-        )
+        return int(fast_poseidon.hash_elements([str(x) for x in inputs]))
 
 
 _poseidon = _RustPoseidon()
@@ -42,7 +40,7 @@ def encode_shard(data: bytes) -> list[int]:
         raise TypeError("data must be bytes")
 
     return [
-        int.from_bytes(data[i:i + CHUNK_BYTES], "big")
+        int.from_bytes(data[i : i + CHUNK_BYTES], "big")
         for i in range(0, len(data), CHUNK_BYTES)
     ]
 
@@ -73,6 +71,7 @@ def hash_parent(left: Hash, right: Hash) -> Hash:
 @dataclass(frozen=True)
 class MerkleProof:
     """Bằng chứng Merkle cho một shard."""
+
     leaf_index: int
     leaf_count: int
     siblings: tuple[tuple[Hash, bool], ...]
@@ -81,6 +80,7 @@ class MerkleProof:
 @dataclass(frozen=True)
 class MerkleTree:
     """Merkle tree lưu các tầng hash từ lá lên root."""
+
     levels: tuple[tuple[Hash, ...], ...]
 
     @property
@@ -146,11 +146,7 @@ def build_merkle_tree(shards: list[bytes]) -> MerkleTree:
 
         for i in range(0, len(current_level), 2):
             left = current_level[i]
-            right = (
-                current_level[i + 1]
-                if i + 1 < len(current_level)
-                else left
-            )
+            right = current_level[i + 1] if i + 1 < len(current_level) else left
             next_level.append(hash_parent(left, right))
 
         levels.append(tuple(next_level))
@@ -256,10 +252,7 @@ def build_chunk_merkle_tree(shard: bytes) -> MerkleTree:
         raise TypeError("shard must be bytes")
     if not shard:
         raise ValueError("shard must not be empty")
-    chunks = [
-        shard[i:i + CHUNK_BYTES]
-        for i in range(0, len(shard), CHUNK_BYTES)
-    ]
+    chunks = [shard[i : i + CHUNK_BYTES] for i in range(0, len(shard), CHUNK_BYTES)]
     return build_hash_tree([hash_chunk(chunk) for chunk in chunks])
 
 
@@ -281,11 +274,11 @@ def verify_hash_path(
 
     expected_depth = 0
     width = proof.leaf_count
-    
+
     while width > 1:
         width = (width + 1) // 2
         expected_depth += 1
-    
+
     if len(proof.siblings) != expected_depth:
         return False
 

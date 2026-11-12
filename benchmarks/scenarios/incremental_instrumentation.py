@@ -1,11 +1,11 @@
 """Benchmark-only instrumentation for IncrementalStore."""
+
 from __future__ import annotations
 
 from typing import Any
 
 from benchmarks.common.timing import measure_ms
 from engram.incremental.store import IncrementalStore
-
 
 STAGE_NAMES = (
     "encrypt",
@@ -29,9 +29,7 @@ class TimedIncrementalStore(IncrementalStore):
 
     def _record(self, name: str, function: Any, *args: Any) -> Any:
         result, elapsed_ms = measure_ms(function, *args)
-        self.stage_timings[name] = (
-            self.stage_timings.get(name, 0.0) + elapsed_ms
-        )
+        self.stage_timings[name] = self.stage_timings.get(name, 0.0) + elapsed_ms
         return result
 
     def _encrypt_generation(self, *args: Any, **kwargs: Any) -> None:
@@ -74,9 +72,7 @@ class TimedIncrementalStore(IncrementalStore):
             **kwargs,
         )
 
-    def _publish_generation_state(
-        self, *args: Any, **kwargs: Any
-    ) -> None:
+    def _publish_generation_state(self, *args: Any, **kwargs: Any) -> None:
         self._record(
             "publish",
             super()._publish_generation_state,

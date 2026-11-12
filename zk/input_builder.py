@@ -18,8 +18,7 @@ def _validate_merkle_proof(
 
     if proof.leaf_index != expected_index:
         raise ValueError(
-            f"Expected leaf index {expected_index}, "
-            f"got {proof.leaf_index}"
+            f"Expected leaf index {expected_index}, " f"got {proof.leaf_index}"
         )
 
     if proof.leaf_count <= 0:
@@ -32,13 +31,10 @@ def _validate_merkle_proof(
 
     if len(proof.siblings) != expected_depth:
         raise ValueError(
-            f"Expected path depth {expected_depth}, "
-            f"got {len(proof.siblings)}"
+            f"Expected path depth {expected_depth}, " f"got {len(proof.siblings)}"
         )
 
-    for level, (sibling_hash, sibling_is_left) in enumerate(
-        proof.siblings
-    ):
+    for level, (sibling_hash, sibling_is_left) in enumerate(proof.siblings):
         if not isinstance(sibling_hash, int):
             raise TypeError("Merkle sibling hash must be an integer")
 
@@ -50,9 +46,7 @@ def _validate_merkle_proof(
         expected_is_left = bool((expected_index >> level) & 1)
 
         if sibling_is_left != expected_is_left:
-            raise ValueError(
-                f"Invalid sibling orientation at level {level}"
-            )
+            raise ValueError(f"Invalid sibling orientation at level {level}")
 
 
 def _serialize_merkle_path(
@@ -63,10 +57,7 @@ def _serialize_merkle_path(
 
     _validate_merkle_proof(proof, expected_index)
 
-    return [
-        str(sibling_hash)
-        for sibling_hash, _ in proof.siblings
-    ]
+    return [str(sibling_hash) for sibling_hash, _ in proof.siblings]
 
 
 def build_single_chunk_input(
@@ -101,12 +92,10 @@ def build_single_chunk_input(
         raise ValueError("chunk_index must be non-negative")
 
     # Retrieve the requested chunk and its two Merkle paths.
-    chunk_data, chunk_proof, shard_proof = (
-        storage.get_chunk_response(
-            chunk_id=chunk_id,
-            shard_index=shard_index,
-            chunk_index=chunk_index,
-        )
+    chunk_data, chunk_proof, shard_proof = storage.get_chunk_response(
+        chunk_id=chunk_id,
+        shard_index=shard_index,
+        chunk_index=chunk_index,
     )
 
     if not chunk_data:
@@ -173,6 +162,7 @@ def build_circuit_metadata(
         "nShards": n_shards,
     }
 
+
 def build_and_save_single_chunk_input(
     storage: StorageManager,
     chunk_id: str,
@@ -201,9 +191,7 @@ def build_and_save_single_chunk_input(
         output_path=output_path,
     )
 
-    metadata_path = input_path.with_name(
-        f"{input_path.stem}_metadata.json"
-    )
+    metadata_path = input_path.with_name(f"{input_path.stem}_metadata.json")
 
     metadata_path.write_text(
         json.dumps(

@@ -5,6 +5,7 @@ resolve cross-mixin attributes and methods without annotating every ``self``.
 Protocol bases are placed after concrete mixins in the store's MRO, so their
 stub methods never replace the actual implementations at runtime.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -69,24 +70,30 @@ class GenerationAccess(Protocol):
     def _seal(self, object_id: str, state: ObjectState) -> None: ...
     def _finish_seal(self, object_id: str, state: ObjectState) -> None: ...
     def _encrypt_generation(
-        self, object_id: str, state: ObjectState, plaintext: bytes,
-        entries: list[VersionEntry], generation_id: str, start_version: int,
-        end_version: int, chunk_root: str,
+        self,
+        object_id: str,
+        state: ObjectState,
+        plaintext: bytes,
+        entries: list[VersionEntry],
+        generation_id: str,
+        start_version: int,
+        end_version: int,
+        chunk_root: str,
     ) -> None: ...
     def _encode_generation(self, ciphertext: bytes) -> EncodedShards: ...
     def _commit_generation(self, encoded: EncodedShards) -> ChunkCommitment: ...
     def _write_generation(
-        self, 
-        generation_id: str, 
-        encoded: EncodedShards, 
-        commitment: ChunkCommitment
+        self, generation_id: str, encoded: EncodedShards, commitment: ChunkCommitment
     ) -> None: ...
     def _publish_generation_state(
         self, object_id: str, state: ObjectState, staged: StagedGeneration
     ) -> None: ...
     def _verify_generation(
-        self, object_id: str, state: ObjectState,
-        staged: StagedGeneration, ciphertext: bytes,
+        self,
+        object_id: str,
+        state: ObjectState,
+        staged: StagedGeneration,
+        ciphertext: bytes,
     ) -> bytes: ...
     def _read_generation_plaintext(
         self, state: ObjectState, generation: GenerationRecord
@@ -101,12 +108,8 @@ class VersionAccess(Protocol):
     """Version/history operations supplied by VersionMixin."""
 
     @staticmethod
-    def _generation_entries(
-        generation: GenerationRecord
-    ) -> list[VersionEntry]: ...
-    def _ordered_generations(
-        self, state: ObjectState
-    ) -> list[GenerationRecord]: ...
+    def _generation_entries(generation: GenerationRecord) -> list[VersionEntry]: ...
+    def _ordered_generations(self, state: ObjectState) -> list[GenerationRecord]: ...
     def _validate_version_generation_mapping(
         self,
         state: ObjectState,
@@ -116,7 +119,9 @@ class VersionAccess(Protocol):
     def list_generations(self, object_id: str) -> list[GenerationRecord]: ...
     def get_version(self, object_id: str, version: int) -> bytes: ...
     def get_mmr_root(self, object_id: str) -> str: ...
-    def get_inclusion_proof(self, object_id: str, version: int) -> dict[str, object]: ...
+    def get_inclusion_proof(
+        self, object_id: str, version: int
+    ) -> dict[str, object]: ...
     def get_consistency_proof(
         self, object_id: str, old_size: int
     ) -> dict[str, object]: ...

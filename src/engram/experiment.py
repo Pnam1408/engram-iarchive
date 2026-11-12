@@ -1,4 +1,3 @@
-
 """Backward-compatible entry point for the baseline pipeline benchmark."""
 
 from benchmarks.scenarios.baseline_pipeline import main, one_run

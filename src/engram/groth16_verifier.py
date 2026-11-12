@@ -1,4 +1,4 @@
-#engram/groth16_verifier.py
+# engram/groth16_verifier.py
 from __future__ import annotations
 
 import json
@@ -32,8 +32,7 @@ def _is_snarkjs_verification_success(
     )
 
     return any(
-        line.strip() == "[INFO]  snarkJS: OK!"
-        or line.strip().endswith("snarkJS: OK!")
+        line.strip() == "[INFO]  snarkJS: OK!" or line.strip().endswith("snarkJS: OK!")
         for line in output.splitlines()
     )
 
@@ -41,6 +40,7 @@ def _is_snarkjs_verification_success(
 # ---------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class Groth16ProofArtifact:
@@ -64,6 +64,7 @@ class RegisteredGroth16Commitment:
 # Public signal loading
 # ---------------------------------------------------------------------
 
+
 def _load_public_signals(
     path: Path,
 ) -> tuple[int, int, int]:
@@ -72,33 +73,29 @@ def _load_public_signals(
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(
-            f"Cannot load public signals: {path}"
-        ) from exc
+        raise ValueError(f"Cannot load public signals: {path}") from exc
 
     if not isinstance(raw, list) or len(raw) != 3:
         raise ValueError(
-            "Expected exactly 3 public signals: "
-            "[merkleRoot, shardIndex, chunkIndex]"
+            "Expected exactly 3 public signals: " "[merkleRoot, shardIndex, chunkIndex]"
         )
 
     try:
         values = tuple(int(value) for value in raw)
     except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "Public signals must contain integers"
-        ) from exc
+        raise ValueError("Public signals must contain integers") from exc
 
     if any(value < 0 for value in values):
         raise ValueError("Public signals must be non-negative")
 
-    #All values are int and len == 3, so this is safe to return as tuple[int, int, int]
-    return values # pyright: ignore[reportReturnType]
+    # All values are int and len == 3, so this is safe to return as tuple[int, int, int]
+    return values  # pyright: ignore[reportReturnType]
 
 
 # ---------------------------------------------------------------------
 # Single Groth16 proof verification
 # ---------------------------------------------------------------------
+
 
 def verify_groth16_proof(
     artifact: Groth16ProofArtifact,
@@ -196,12 +193,12 @@ def verify_groth16_proof(
             timeout=timeout_seconds,
         )
 
-#        print("\n=== GROTH16 VERIFIER DEBUG ===")
-#        print("Command:", command)
-#        print("CWD:", cwd)
-#        print("Return code:", result.returncode)
-#        print("STDOUT:", repr(result.stdout))
-#        print("STDERR:", repr(result.stderr))
+    #        print("\n=== GROTH16 VERIFIER DEBUG ===")
+    #        print("Command:", command)
+    #        print("CWD:", cwd)
+    #        print("Return code:", result.returncode)
+    #        print("STDOUT:", repr(result.stdout))
+    #        print("STDERR:", repr(result.stderr))
     except (OSError, subprocess.TimeoutExpired):
         return False
 
@@ -219,12 +216,11 @@ def verify_groth16_proof(
 # Challenge-level verification
 # ---------------------------------------------------------------------
 
+
 def verify_groth16_challenge(
     challenge_targets: tuple[ShardChallenge, ...],
     proofs: tuple[Groth16ProofArtifact, ...],
-    registered_commitments: Mapping[
-        str, RegisteredGroth16Commitment
-    ],
+    registered_commitments: Mapping[str, RegisteredGroth16Commitment],
     expected_p: bytes,
     snarkjs_command: tuple[str, ...] = (
         "npx",
@@ -280,9 +276,7 @@ def verify_groth16_challenge(
     target_set = set(challenge_targets)
 
     # Index proof artifacts by target.
-    proof_map: dict[
-        ShardChallenge, Groth16ProofArtifact
-    ] = {}
+    proof_map: dict[ShardChallenge, Groth16ProofArtifact] = {}
 
     failed_targets: set[ShardChallenge] = set()
 
@@ -315,9 +309,7 @@ def verify_groth16_challenge(
             failed_targets.add(target)
             continue
 
-        commitment = registered_commitments.get(
-            target.commitment_id
-        )
+        commitment = registered_commitments.get(target.commitment_id)
 
         if commitment is None:
             failed_targets.add(target)
@@ -350,8 +342,6 @@ def verify_groth16_challenge(
         verified_count=verified_count,
         expected_count=expected_count,
         failed_targets=tuple(
-            target
-            for target in challenge_targets
-            if target in failed_targets
+            target for target in challenge_targets if target in failed_targets
         ),
     )

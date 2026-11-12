@@ -1,4 +1,5 @@
 """Fixed-size chunking retained as the experimental baseline."""
+
 from __future__ import annotations
 
 from ._chunks import build_chunks

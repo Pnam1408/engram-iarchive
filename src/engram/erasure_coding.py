@@ -34,9 +34,7 @@ def encode(
         raise TypeError("data must be bytes")
 
     if not (1 <= data_shards < total_shards <= 255):
-        raise ValueError(
-            "Require 1 <= data_shards < total_shards <= 255"
-        )
+        raise ValueError("Require 1 <= data_shards < total_shards <= 255")
 
     parity_shards = total_shards - data_shards
     rs = RSCodec(parity_shards)
@@ -46,8 +44,7 @@ def encode(
     padded = data.ljust(shard_size * data_shards, b"\x00")
 
     data_parts = [
-        padded[i * shard_size : (i + 1) * shard_size]
-        for i in range(data_shards)
+        padded[i * shard_size : (i + 1) * shard_size] for i in range(data_shards)
     ]
 
     # Khởi tạo các shard đầu ra.
@@ -55,10 +52,7 @@ def encode(
 
     # Mã hóa RS theo từng vị trí byte trên các shard dữ liệu.
     for offset in range(shard_size):
-        message = bytes(
-            data_parts[i][offset]
-            for i in range(data_shards)
-        )
+        message = bytes(data_parts[i][offset] for i in range(data_shards))
 
         codeword = bytes(rs.encode(message))
 
@@ -71,6 +65,7 @@ def encode(
         data_shards=data_shards,
         total_shards=total_shards,
     )
+
 
 # GF(2^8), với đa thức nguyên thủy 0x11D.
 # Khớp cấu hình mặc định của reedsolo.RSCodec đang sử dụng.
@@ -110,10 +105,7 @@ def _gf_inv(a: int) -> int:
 
 # Bảng tra cứu: MUL_TABLE[a][b] = a * b trong GF(256).
 # bytes.translate() sẽ dùng bảng này để nhân cả một shard.
-_GF_MUL_TABLE = tuple(
-    bytes(_gf_mul(a, b) for b in range(256))
-    for a in range(256)
-)
+_GF_MUL_TABLE = tuple(bytes(_gf_mul(a, b) for b in range(256)) for a in range(256))
 
 
 @lru_cache(maxsize=32)
@@ -161,11 +153,7 @@ def _invert_matrix_gf(
         raise ValueError("Matrix must be non-empty and square")
 
     # Ghép ma trận đầu vào với ma trận đơn vị.
-    aug = [
-        list(matrix[i]) +
-        [1 if i == j else 0 for j in range(n)]
-        for i in range(n)
-    ]
+    aug = [list(matrix[i]) + [1 if i == j else 0 for j in range(n)] for i in range(n)]
 
     for col in range(n):
         # Tìm pivot khác 0.
@@ -182,10 +170,7 @@ def _invert_matrix_gf(
 
         # Chuẩn hóa pivot thành 1.
         pivot_inv = _gf_inv(aug[col][col])
-        aug[col] = [
-            _gf_mul(value, pivot_inv)
-            for value in aug[col]
-        ]
+        aug[col] = [_gf_mul(value, pivot_inv) for value in aug[col]]
 
         # Khử các phần tử còn lại trong cột.
         for row in range(n):
@@ -196,15 +181,9 @@ def _invert_matrix_gf(
             if factor == 0:
                 continue
 
-            aug[row] = [
-                a ^ _gf_mul(factor, b)
-                for a, b in zip(aug[row], aug[col])
-            ]
+            aug[row] = [a ^ _gf_mul(factor, b) for a, b in zip(aug[row], aug[col])]
 
-    return tuple(
-        tuple(aug[i][n:])
-        for i in range(n)
-    )
+    return tuple(tuple(aug[i][n:]) for i in range(n))
 
 
 @lru_cache(maxsize=128)
@@ -216,12 +195,10 @@ def _recovery_matrix(
     """Tính ma trận khôi phục cho tập shard đã chọn."""
     generator = _generator_matrix(data_shards, total_shards)
 
-    selected_matrix = tuple(
-        generator[index]
-        for index in selected_indices
-    )
+    selected_matrix = tuple(generator[index] for index in selected_indices)
 
     return _invert_matrix_gf(selected_matrix)
+
 
 def decode(
     available_shards: dict[int, bytes],
@@ -236,9 +213,7 @@ def decode(
     Cần ít nhất data_shards shard khác nhau.
     """
     if not (1 <= data_shards < total_shards <= 255):
-        raise ValueError(
-            "Require 1 <= data_shards < total_shards <= 255"
-        )
+        raise ValueError("Require 1 <= data_shards < total_shards <= 255")
 
     if original_size < 0:
         raise ValueError("original_size must be non-negative")
@@ -247,9 +222,7 @@ def decode(
         raise ValueError("Not enough shards to reconstruct data")
 
     for index, shard in available_shards.items():
-        if not isinstance(index, int) or not (
-            0 <= index < total_shards
-        ):
+        if not isinstance(index, int) or not (0 <= index < total_shards):
             raise ValueError(f"Invalid shard index: {index}")
 
         if not isinstance(shard, bytes):
@@ -294,9 +267,7 @@ def decode(
                 translated = source
             else:
                 # Nhân toàn bộ shard bằng bảng tra cứu.
-                translated = source.translate(
-                    _GF_MUL_TABLE[coefficient]
-                )
+                translated = source.translate(_GF_MUL_TABLE[coefficient])
 
             # Cộng trong GF(256) chính là XOR.
             for offset, value in enumerate(translated):

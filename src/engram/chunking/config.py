@@ -1,4 +1,5 @@
 """Configuration for content-defined chunking."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -21,7 +22,9 @@ class FastCDCConfig:
         if self.min_size < 64:
             raise ValueError("min_size must be at least 64 bytes")
         if not (self.min_size <= self.avg_size <= self.max_size):
-            raise ValueError("chunk sizes must satisfy min_size <= avg_size <= max_size")
+            raise ValueError(
+                "chunk sizes must satisfy min_size <= avg_size <= max_size"
+            )
         if self.avg_size & (self.avg_size - 1):
             raise ValueError("avg_size must be a power of two")
         if self.max_size > 0xFFFF_FFFF:

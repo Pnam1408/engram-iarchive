@@ -1,4 +1,4 @@
-#benchmarks/scenarios/full_snapshot.py
+# benchmarks/scenarios/full_snapshot.py
 """B0 full-snapshot benchmark for the ENGRAM-iARCHIVE simulation.
 
 For each version, the complete logical snapshot is sent through the existing
@@ -12,6 +12,7 @@ Run from the repository root:
         --initial-size-mib 1 --delta-size-mib 0.25 --updates 2 \
         --repeat 3 --warmup 1
 """
+
 from __future__ import annotations
 
 import argparse
@@ -49,7 +50,6 @@ _NON_METRIC_NUMERIC_FIELDS = {
     "challenge_size",
     "available_shards",
     "chunks_per_shard",
-
     # Sequence workload descriptors, not performance measurements.
     "versions_processed",
     "initial_size_bytes",
@@ -100,7 +100,9 @@ def summarize_versions(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]
             "runs": len(group),
             "snapshot_size_bytes": group[0]["snapshot_size_bytes"],
             "delta_size_bytes": group[0]["delta_size_bytes"],
-            "full_snapshot_reprocessed_bytes": group[0]["full_snapshot_reprocessed_bytes"],
+            "full_snapshot_reprocessed_bytes": group[0][
+                "full_snapshot_reprocessed_bytes"
+            ],
         }
         summary.update(numeric_summary([_metric_values(row) for row in group]))
         summaries.append(summary)
@@ -151,21 +153,25 @@ def run_sequence(
         pipeline_scenario = row.get("scenario")
         # Preserve the baseline pipeline's original metric names and values,
         # while making the outer experiment's scenario/version explicit.
-        row.update({
-            "scenario": "full_snapshot",
-            "pipeline_scenario": pipeline_scenario,
-            "run_index": run_index,
-            "version": version,
-            "snapshot_size_bytes": len(payload),
-            "delta_size_bytes": delta_size_bytes,
-            "full_snapshot_reprocessed_bytes": len(payload),
-        })
+        row.update(
+            {
+                "scenario": "full_snapshot",
+                "pipeline_scenario": pipeline_scenario,
+                "run_index": run_index,
+                "version": version,
+                "snapshot_size_bytes": len(payload),
+                "delta_size_bytes": delta_size_bytes,
+                "full_snapshot_reprocessed_bytes": len(payload),
+            }
+        )
         version_rows.append(row)
 
         total_snapshot_bytes_processed += len(payload)
         total_delta_bytes += delta_size_bytes
         stored_bytes = result.get("stored_payload_bytes")
-        if isinstance(stored_bytes, (int, float)) and not isinstance(stored_bytes, bool):
+        if isinstance(stored_bytes, (int, float)) and not isinstance(
+            stored_bytes, bool
+        ):
             total_stored_shard_bytes += int(stored_bytes)
         pipeline_ms = result.get("pipeline_end_to_end_ms")
         if isinstance(pipeline_ms, (int, float)) and not isinstance(pipeline_ms, bool):
@@ -208,18 +214,31 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--initial-size-mib", type=float, default=1.0)
     parser.add_argument("--delta-size-mib", type=float, default=0.25)
-    parser.add_argument("--updates", type=int, default=5,
-                        help="Number of appended deltas after version 0.")
-    parser.add_argument("--repeat", type=int, default=10,
-                        help="Number of measured independent sequences.")
-    parser.add_argument("--warmup", type=int, default=2,
-                        help="Number of whole sequences to run and exclude from results.")
+    parser.add_argument(
+        "--updates",
+        type=int,
+        default=5,
+        help="Number of appended deltas after version 0.",
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=10,
+        help="Number of measured independent sequences.",
+    )
+    parser.add_argument(
+        "--warmup",
+        type=int,
+        default=2,
+        help="Number of whole sequences to run and exclude from results.",
+    )
     parser.add_argument("--data-shards", type=int, default=4)
     parser.add_argument("--total-shards", type=int, default=8)
     parser.add_argument("--challenge-size", type=int, default=3)
     parser.add_argument("--seed", type=int, default=20261029)
-    parser.add_argument("--output-dir", type=Path,
-                        default=PROJECT_ROOT / "results" / "full_snapshot")
+    parser.add_argument(
+        "--output-dir", type=Path, default=PROJECT_ROOT / "results" / "full_snapshot"
+    )
     return parser.parse_args(argv)
 
 
@@ -235,7 +254,9 @@ def main(argv: Sequence[str] | None = None) -> None:
     initial_size_bytes = int(args.initial_size_mib * MIB)
     delta_size_bytes = int(args.delta_size_mib * MIB)
     if initial_size_bytes <= 0 or delta_size_bytes <= 0:
-        raise ValueError("The selected MiB sizes are too small to produce non-empty byte payloads")
+        raise ValueError(
+            "The selected MiB sizes are too small to produce non-empty byte payloads"
+        )
 
     snapshots = build_snapshots(
         initial_size=initial_size_bytes,
@@ -254,7 +275,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         file_paths = _write_snapshot_files(snapshots, Path(temp_dir))
 
         for warmup_index in range(args.warmup):
-            run_sequence(snapshots, file_paths, run_index=-(warmup_index + 1), args=args)
+            run_sequence(
+                snapshots, file_paths, run_index=-(warmup_index + 1), args=args
+            )
 
         for run_index in range(args.repeat):
             rows, sequence_row = run_sequence(
@@ -331,9 +354,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
         },
         "versions": summarize_versions(version_rows),
-        "sequence_runs": numeric_summary([
-            _metric_values(row) for row in sequence_rows
-        ]),
+        "sequence_runs": numeric_summary(
+            [_metric_values(row) for row in sequence_rows]
+        ),
         "all_reconstructions_passed": all(
             row.get("reconstruction_success") is True for row in version_rows
         ),
@@ -347,7 +370,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         "environment": environment,
         "summary": numeric_summary([_metric_values(row) for row in sequence_rows]),
         "all_reconstructions_passed": version_summary["all_reconstructions_passed"],
-        "all_python_merkle_proofs_passed": version_summary["all_python_merkle_proofs_passed"],
+        "all_python_merkle_proofs_passed": version_summary[
+            "all_python_merkle_proofs_passed"
+        ],
     }
 
     version_export = export_results(
@@ -355,24 +380,30 @@ def main(argv: Sequence[str] | None = None) -> None:
         prefix="full_snapshot_versions",
         rows=version_rows,
         summary=version_summary,
-        csv_fieldnames=list(dict.fromkeys(
-            key for row in version_rows for key in row.keys()
-        )),
+        csv_fieldnames=list(
+            dict.fromkeys(key for row in version_rows for key in row.keys())
+        ),
     )
     sequence_export = export_results(
         output_dir=args.output_dir,
         prefix="full_snapshot_sequences",
         rows=sequence_rows,
         summary=sequence_summary,
-        csv_fieldnames=list(dict.fromkeys(
-            key for row in sequence_rows for key in row.keys()
-        )),
+        csv_fieldnames=list(
+            dict.fromkeys(key for row in sequence_rows for key in row.keys())
+        ),
     )
 
-    print(f"Measured sequences: {args.repeat}; warmup sequences excluded: {args.warmup}")
+    print(
+        f"Measured sequences: {args.repeat}; warmup sequences excluded: {args.warmup}"
+    )
     print(f"Snapshot versions per sequence: {len(snapshots)}")
-    print(f"All reconstructions passed: {version_summary['all_reconstructions_passed']}")
-    print(f"All Python Merkle proofs passed: {version_summary['all_python_merkle_proofs_passed']}")
+    print(
+        f"All reconstructions passed: {version_summary['all_reconstructions_passed']}"
+    )
+    print(
+        f"All Python Merkle proofs passed: {version_summary['all_python_merkle_proofs_passed']}"
+    )
     print(f"Version CSV: {_export_path(version_export, 'csv')}")
     print(f"Version JSON: {_export_path(version_export, 'json')}")
     print(f"Sequence CSV: {_export_path(sequence_export, 'csv')}")

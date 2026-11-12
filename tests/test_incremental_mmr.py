@@ -1,4 +1,5 @@
 """Integration tests for per-object MMR history commitments."""
+
 from __future__ import annotations
 
 import json
@@ -28,9 +29,9 @@ class IncrementalMMRTests(unittest.TestCase):
     def test_new_object_starts_with_empty_mmr(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = self.make_store(tmp)
-    
+
             state = store._create_initial_state("doc")
-    
+
             self.assertEqual(state["schema_version"], store.STATE_VERSION)
             self.assertIn("mmr", state)
             self.assertEqual(state["mmr"]["leaf_count"], 0)

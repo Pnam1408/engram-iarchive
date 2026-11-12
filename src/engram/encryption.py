@@ -1,9 +1,7 @@
-
 from dataclasses import dataclass
 import os
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 
 NONCE_SIZE = 12
 KEY_SIZE = 32  # 256 bits
@@ -39,9 +37,7 @@ def encrypt(
     if not isinstance(key, bytes) or len(key) != KEY_SIZE:
         raise ValueError("AES-256 key must be exactly 32 bytes")
 
-    if associated_data is not None and not isinstance(
-        associated_data, bytes
-    ):
+    if associated_data is not None and not isinstance(associated_data, bytes):
         raise TypeError("associated_data must be bytes or None")
 
     nonce = os.urandom(NONCE_SIZE)

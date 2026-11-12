@@ -1,4 +1,5 @@
 """FastCDC v2020 chunking backed by the pinned fastcdc-rs crate."""
+
 from __future__ import annotations
 
 from ._chunks import build_chunks

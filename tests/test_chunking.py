@@ -15,7 +15,9 @@ class FixedSizeChunkerTests(unittest.TestCase):
         chunks = FixedSizeChunker(chunk_size=4).chunk(data)
 
         self.assertEqual([chunk.data for chunk in chunks], [b"abcd", b"efgh", b"ij"])
-        self.assertEqual([(chunk.offset, chunk.size) for chunk in chunks], [(0, 4), (4, 4), (8, 2)])
+        self.assertEqual(
+            [(chunk.offset, chunk.size) for chunk in chunks], [(0, 4), (4, 4), (8, 2)]
+        )
         self.assertEqual([chunk.index for chunk in chunks], [0, 1, 2])
         self.assertEqual(chunks[0].sha256, hashlib.sha256(b"abcd").hexdigest())
         self.assertEqual(b"".join(chunk.data for chunk in chunks), data)
@@ -36,7 +38,9 @@ class FixedSizeChunkerTests(unittest.TestCase):
 class FastCDCConfigTests(unittest.TestCase):
     def test_default_configuration(self) -> None:
         config = FastCDCConfig()
-        self.assertEqual((config.min_size, config.avg_size, config.max_size), (2048, 4096, 8192))
+        self.assertEqual(
+            (config.min_size, config.avg_size, config.max_size), (2048, 4096, 8192)
+        )
 
     def test_rejects_invalid_configuration(self) -> None:
         invalid = (
@@ -67,15 +71,16 @@ class FastCDCChunkerTests(unittest.TestCase):
             chunks = FastCDCChunker().chunk(b"abcdefgh")
 
         self.assertEqual([chunk.data for chunk in chunks], [b"abc", b"defgh"])
-        self.assertEqual([chunk.sha256 for chunk in chunks], [
-            hashlib.sha256(b"abc").hexdigest(),
-            hashlib.sha256(b"defgh").hexdigest(),
-        ])
+        self.assertEqual(
+            [chunk.sha256 for chunk in chunks],
+            [
+                hashlib.sha256(b"abc").hexdigest(),
+                hashlib.sha256(b"defgh").hexdigest(),
+            ],
+        )
 
     def test_rejects_invalid_native_boundaries(self) -> None:
-        native = types.SimpleNamespace(
-            chunk_boundaries=lambda *_args: [(0, 3), (4, 4)]
-        )
+        native = types.SimpleNamespace(chunk_boundaries=lambda *_args: [(0, 3), (4, 4)])
         with patch.dict(sys.modules, {"engram.chunking._fastcdc": native}):
             with self.assertRaisesRegex(ValueError, "contiguous"):
                 FastCDCChunker().chunk(b"abcdefgh")

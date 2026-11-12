@@ -1,4 +1,3 @@
-
 import pytest
 
 from engram.merkle import (
@@ -36,9 +35,7 @@ def test_wrong_root_fails_verification():
     tree = build_merkle_tree(shards)
 
     proof = tree.generate_proof(2)
-    wrong_root = build_merkle_tree(
-        [b"W", b"X", b"Y", b"Z"]
-    ).root
+    wrong_root = build_merkle_tree([b"W", b"X", b"Y", b"Z"]).root
 
     assert not verify_proof(shards[2], proof, wrong_root)
 
@@ -86,13 +83,13 @@ def test_tampered_proof_is_rejected():
 
     # Thay đổi giá trị field của sibling hash.
     from engram.merkle import FIELD_MODULUS
+
     tampered_hash = (sibling_hash + 1) % FIELD_MODULUS
 
     tampered_proof = type(proof)(
         leaf_index=proof.leaf_index,
         leaf_count=proof.leaf_count,
-        siblings=((tampered_hash, sibling_is_left),)
-        + proof.siblings[1:],
+        siblings=((tampered_hash, sibling_is_left),) + proof.siblings[1:],
     )
 
     assert not verify_proof(

@@ -1,4 +1,4 @@
-#engram/challenge.py
+# engram/challenge.py
 from dataclasses import dataclass
 import hashlib
 import random
@@ -67,14 +67,8 @@ def select_chunk_indices(
         n_chunks = chunks_per_shard[shard_index]
 
         # Derive an independent deterministic seed for each shard.
-        payload = (
-            b"ENGRAM_CHUNK_CHALLENGE_V1"
-            + p
-            + shard_index.to_bytes(4, "big")
-        )
-        seed = int.from_bytes(
-            hashlib.sha256(payload).digest(), "big"
-        )
+        payload = b"ENGRAM_CHUNK_CHALLENGE_V1" + p + shard_index.to_bytes(4, "big")
+        seed = int.from_bytes(hashlib.sha256(payload).digest(), "big")
 
         rng = random.Random(seed)
         chunk_indices.append(rng.randrange(n_chunks))
@@ -92,9 +86,7 @@ def create_challenge(
     epoch_id: str = "epoch-001",
 ) -> Challenge:
     if len(chunks_per_shard) != total_shards:
-        raise ValueError(
-            "chunks_per_shard length must equal total_shards"
-        )
+        raise ValueError("chunks_per_shard length must equal total_shards")
 
     p = derive_p(block_hash, miner_id, epoch_id)
 

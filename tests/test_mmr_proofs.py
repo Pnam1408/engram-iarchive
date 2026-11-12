@@ -14,7 +14,10 @@ from engram.mmr import (
 def build_mmr(count: int) -> MMRAccumulator:
     mmr = MMRAccumulator()
     for version in range(1, count + 1):
-        mmr.append({"object_id": "doc", "version": version, "delta_sha256": f"{version:064x}"}, version=version)
+        mmr.append(
+            {"object_id": "doc", "version": version, "delta_sha256": f"{version:064x}"},
+            version=version,
+        )
     return mmr
 
 
@@ -54,10 +57,21 @@ def test_inclusion_rejects_missing_or_reordered_siblings():
     assert not verify_inclusion_proof(changed, mmr.root)
 
 
-@pytest.mark.parametrize("old_size,new_size", [
-    (0, 0), (0, 1), (1, 2), (3, 4), (7, 8), (7, 13), (8, 13),
-    (13, 13), (13, 17), (15, 31),
-])
+@pytest.mark.parametrize(
+    "old_size,new_size",
+    [
+        (0, 0),
+        (0, 1),
+        (1, 2),
+        (3, 4),
+        (7, 8),
+        (7, 13),
+        (8, 13),
+        (13, 13),
+        (13, 17),
+        (15, 31),
+    ],
+)
 def test_consistency_proofs(old_size: int, new_size: int):
     mmr = build_mmr(new_size)
     old_snapshot = build_mmr(old_size)

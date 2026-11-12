@@ -1,9 +1,9 @@
-
 """Prepare a deterministic workload and one single-chunk PoSt input.
 
 Usage:
     PYTHONPATH=src python scripts/smoke_test_single_proof.py
 """
+
 from __future__ import annotations
 
 import sys
@@ -25,7 +25,6 @@ from zk.generate_circuit import (
     DEFAULT_OUTPUT,
     generate_circuit,
 )
-
 
 # Workload configuration
 INITIAL_SIZE = 64 * 1024  # 64 KiB
@@ -70,9 +69,7 @@ def main() -> None:
     n_chunks = (shard_size + CHUNK_BYTES - 1) // CHUNK_BYTES
 
     if shard_size <= CHUNK_BYTES:
-        raise ValueError(
-            "Shard must contain at least two chunks for this circuit"
-        )
+        raise ValueError("Shard must contain at least two chunks for this circuit")
 
     if not 0 <= SHARD_INDEX < TOTAL_SHARDS:
         raise ValueError("Invalid SHARD_INDEX")
@@ -88,9 +85,7 @@ def main() -> None:
 
     # 3. Store shards, read them back and verify reconstruction.
     # A temporary directory avoids reusing stale manifests from previous runs.
-    with tempfile.TemporaryDirectory(
-        prefix="engram_single_proof_"
-    ) as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="engram_single_proof_") as temp_dir:
         storage = StorageManager(
             Path(temp_dir) / "storage",
             node_count=TOTAL_SHARDS,
@@ -109,9 +104,7 @@ def main() -> None:
         )
 
         if recovered != payload:
-            raise RuntimeError(
-                "Reconstructed payload differs from original workload"
-            )
+            raise RuntimeError("Reconstructed payload differs from original workload")
 
         print("\n[PASS] Storage readback and RS reconstruction")
 
@@ -132,9 +125,7 @@ def main() -> None:
             TOTAL_SHARDS,
         )
 
-    metadata_path = INPUT_JSON.with_name(
-        f"{INPUT_JSON.stem}_metadata.json"
-    )
+    metadata_path = INPUT_JSON.with_name(f"{INPUT_JSON.stem}_metadata.json")
 
     print("\n[PASS] Single-chunk input generated")
     print(f"Chunk ID: {CHUNK_ID}")

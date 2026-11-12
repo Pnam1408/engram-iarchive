@@ -1,5 +1,6 @@
-#engram/incremental/versions.py
+# engram/incremental/versions.py
 """Version listing, retrieval, and history verification APIs."""
+
 from __future__ import annotations
 
 import copy
@@ -126,13 +127,9 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
                     )
 
                 if record.get("generation_id") != generation_id:
-                    raise ValueError(
-                        f"Version {version} generation_id mismatch"
-                    )
+                    raise ValueError(f"Version {version} generation_id mismatch")
 
-                if int(record["delta_size_bytes"]) != int(
-                    entry["delta_size_bytes"]
-                ):
+                if int(record["delta_size_bytes"]) != int(entry["delta_size_bytes"]):
                     raise ValueError(f"Version {version} delta size mismatch")
 
                 if record["delta_sha256"] != entry["delta_sha256"]:
@@ -147,16 +144,12 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
 
             if status == "PENDING":
                 if record.get("generation_id") is not None:
-                    raise ValueError(
-                        f"Pending version {version} has a generation_id"
-                    )
+                    raise ValueError(f"Pending version {version} has a generation_id")
                 pending_versions.append(version)
 
             elif status == "Available":
                 if version not in version_to_generation:
-                    raise ValueError(
-                        f"Available version {version} has no generation"
-                    )
+                    raise ValueError(f"Available version {version} has no generation")
 
             else:
                 raise ValueError(
@@ -192,14 +185,9 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
         generations = self._ordered_generations(state)
         return copy.deepcopy(generations)
 
-
     def get_version(self, object_id: str, version: int) -> bytes:
         """Retrieve a committed object version by replaying ordered generations."""
-        if (
-            not isinstance(version, int)
-            or isinstance(version, bool)
-            or version < 1
-        ):
+        if not isinstance(version, int) or isinstance(version, bool) or version < 1:
             raise ValueError("version must be a positive integer")
 
         self.recover(object_id)
@@ -215,9 +203,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
         )
 
         if version_record is None:
-            raise KeyError(
-                f"Version {version} does not exist for object {object_id!r}"
-            )
+            raise KeyError(f"Version {version} does not exist for object {object_id!r}")
 
         if version_record["status"] != "Available":
             raise RuntimeError(
@@ -231,9 +217,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
         )
 
         if version not in version_to_generation:
-            raise RuntimeError(
-                f"Version {version} has no committed generation"
-            )
+            raise RuntimeError(f"Version {version} has no committed generation")
 
         object_bytes = bytearray()
         expected_version = 1
@@ -247,9 +231,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
             entries = self._generation_entries(generation)
             plain = self._read_generation_plaintext(state, generation)
 
-            if len(plain) != sum(
-                int(entry["delta_size_bytes"]) for entry in entries
-            ):
+            if len(plain) != sum(int(entry["delta_size_bytes"]) for entry in entries):
                 raise ValueError(
                     f"Generation size does not match entries: "
                     f"{generation['generation_id']}"
@@ -267,13 +249,11 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
                     )
 
                 size = int(entry["delta_size_bytes"])
-                delta = plain[offset:offset + size]
+                delta = plain[offset : offset + size]
                 offset += size
 
                 if len(delta) != size:
-                    raise ValueError(
-                        f"Delta size mismatch at version {entry_version}"
-                    )
+                    raise ValueError(f"Delta size mismatch at version {entry_version}")
 
                 if hashlib.sha256(delta).hexdigest() != entry["delta_sha256"]:
                     raise ValueError(
@@ -284,25 +264,21 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
                 expected_version += 1
 
                 if entry_version == version:
-                    if version_record.get("generation_id") != generation[
-                        "generation_id"
-                    ]:
-                        raise ValueError(
-                            f"Version {version} generation_id mismatch"
-                        )
+                    if (
+                        version_record.get("generation_id")
+                        != generation["generation_id"]
+                    ):
+                        raise ValueError(f"Version {version} generation_id mismatch")
 
                     return bytes(object_bytes)
 
-        raise RuntimeError(
-            f"Version {version} could not be reconstructed"
-        )
-
+        raise RuntimeError(f"Version {version} could not be reconstructed")
 
     def get_mmr_root(self, object_id: str) -> str:
         """Return the current per-object MMR root."""
         if not self._state_path(object_id).exists():
             return MMRAccumulator().root.hex()
-    
+
         self.recover(object_id)
         state = self._load(object_id)
         return MMRAccumulator.from_dict(state["mmr"]).root.hex()
@@ -324,9 +300,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
         accumulator = MMRAccumulator.from_dict(state["mmr"])
         return generate_inclusion_proof(accumulator, version - 1)
 
-    def get_consistency_proof(
-        self, object_id: str, old_size: int
-    ) -> dict[str, object]:
+    def get_consistency_proof(self, object_id: str, old_size: int) -> dict[str, object]:
         """Prove that the current MMR extends a previously observed prefix size."""
         if not isinstance(old_size, int) or isinstance(old_size, bool) or old_size < 0:
             raise ValueError("old_size must be a non-negative integer")
@@ -348,10 +322,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
 
             expected_versions = list(range(1, next_version))
 
-            version_numbers = [
-                int(record["version"])
-                for record in state["versions"]
-            ]
+            version_numbers = [int(record["version"]) for record in state["versions"]]
 
             if sorted(version_numbers) != expected_versions:
                 return False
@@ -370,9 +341,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
 
             committed_versions = sorted(version_to_generation)
 
-            if committed_versions != list(
-                range(1, len(committed_versions) + 1)
-            ):
+            if committed_versions != list(range(1, len(committed_versions) + 1)):
                 return False
 
             # Pending versions must form a contiguous tail after committed data.
@@ -388,10 +357,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
 
             # Every pending version must belong to the open generation.
             open_entries = state["open"]["entries"]
-            open_versions = [
-                int(entry["version"])
-                for entry in open_entries
-            ]
+            open_versions = [int(entry["version"]) for entry in open_entries]
 
             if open_versions != pending_versions:
                 return False
@@ -400,10 +366,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
                 entries = self._generation_entries(generation)
                 plain = self._read_generation_plaintext(state, generation)
 
-                expected_size = sum(
-                    int(entry["delta_size_bytes"])
-                    for entry in entries
-                )
+                expected_size = sum(int(entry["delta_size_bytes"]) for entry in entries)
 
                 if len(plain) != expected_size:
                     return False
@@ -412,7 +375,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
 
                 for entry in entries:
                     size = int(entry["delta_size_bytes"])
-                    delta = plain[offset:offset + size]
+                    delta = plain[offset : offset + size]
                     offset += size
 
                     if len(delta) != size:
@@ -426,8 +389,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
                 open_plaintext = self._read_buffer(object_id, state)
 
                 if len(open_plaintext) != sum(
-                    int(entry["delta_size_bytes"])
-                    for entry in open_entries
+                    int(entry["delta_size_bytes"]) for entry in open_entries
                 ):
                     return False
 
@@ -435,7 +397,7 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
 
                 for entry in open_entries:
                     size = int(entry["delta_size_bytes"])
-                    delta = open_plaintext[offset:offset + size]
+                    delta = open_plaintext[offset : offset + size]
                     offset += size
 
                     if len(delta) != size:
@@ -458,12 +420,10 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
                 return False
 
             generation_by_id = {
-                generation["generation_id"]: generation
-                for generation in generations
+                generation["generation_id"]: generation for generation in generations
             }
             records_by_version = {
-                int(record["version"]): record
-                for record in state["versions"]
+                int(record["version"]): record for record in state["versions"]
             }
             expected_accumulator = MMRAccumulator()
             for version in committed_versions:
@@ -481,7 +441,9 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
                 return False
             if any(
                 canonical_manifest_bytes(actual) != canonical_manifest_bytes(expected)
-                for actual, expected in zip(stored_manifests, expected_manifests, strict=True)
+                for actual, expected in zip(
+                    stored_manifests, expected_manifests, strict=True
+                )
             ):
                 return False
             if accumulator.root != expected_accumulator.root:
@@ -498,4 +460,3 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
             IndexError,
         ):
             return False
-

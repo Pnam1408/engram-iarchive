@@ -1,4 +1,3 @@
-
 import tempfile
 import unittest
 
@@ -187,15 +186,9 @@ class IncrementalGenerationPropertyTests(unittest.TestCase):
             original_generations = list(state["generations"])
             original_versions = list(state["versions"])
 
-            state["generations"] = [
-                original_generations[index]
-                for index in order
-            ]
+            state["generations"] = [original_generations[index] for index in order]
 
-            state["versions"] = [
-                original_versions[index]
-                for index in order
-            ]
+            state["versions"] = [original_versions[index] for index in order]
 
             store._save("doc", state)
 

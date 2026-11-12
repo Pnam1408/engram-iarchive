@@ -1,4 +1,4 @@
-#tests/test_storage.py
+# tests/test_storage.py
 import json
 
 import pytest
@@ -39,9 +39,7 @@ def test_store_and_load_chunk(storage, sample_data):
     assert metadata.data_shards == 4
     assert metadata.total_shards == 6
 
-    assert storage.get_stored_bytes() == sum(
-        len(shard) for shard in encoded.shards
-    )
+    assert storage.get_stored_bytes() == sum(len(shard) for shard in encoded.shards)
 
     available = storage.load_available_shards("chunk_001")
 
@@ -85,17 +83,11 @@ def test_write_shards_without_manifest(storage, sample_data):
     for index, (record, shard) in enumerate(zip(records, shards)):
         assert record["index"] == index
         assert record["size"] == len(shard)
-        assert record["file"] == (
-            f"chunk_write_only_shard_{index}.bin"
-        )
+        assert record["file"] == (f"chunk_write_only_shard_{index}.bin")
 
         assert "sha256" not in record
 
-        shard_path = (
-            storage.nodes_dir
-            / f"node_{index}"
-            / record["file"]
-        )
+        shard_path = storage.nodes_dir / f"node_{index}" / record["file"]
         assert shard_path.read_bytes() == shard
 
 
@@ -120,9 +112,7 @@ def test_build_manifest_without_persisting(storage, sample_data):
     assert len(manifest["shards"]) == 6
     assert len(manifest["shard_roots"]) == 6
 
-    for index, (record, shard) in enumerate(
-        zip(manifest["shards"], shards)
-    ):
+    for index, (record, shard) in enumerate(zip(manifest["shards"], shards)):
         assert record["index"] == index
         assert record["size"] == len(shard)
         assert record["sha256"] == storage._sha256(shard)
@@ -149,15 +139,11 @@ def test_persist_manifest(storage, sample_data):
     storage.persist_manifest("chunk_persist", manifest)
 
     persisted = json.loads(
-        storage._manifest_path("chunk_persist").read_text(
-            encoding="utf-8"
-        )
+        storage._manifest_path("chunk_persist").read_text(encoding="utf-8")
     )
 
     assert persisted == manifest
-    assert storage.get_merkle_root("chunk_persist") == (
-        commitment.global_tree.root
-    )
+    assert storage.get_merkle_root("chunk_persist") == (commitment.global_tree.root)
 
 
 def test_recover_when_two_nodes_are_unavailable(storage):
@@ -192,11 +178,7 @@ def test_tampered_shard_is_rejected(storage):
 
     storage.store_chunk("chunk_003", encoded)
 
-    shard_path = (
-        storage.nodes_dir
-        / "node_0"
-        / "chunk_003_shard_0.bin"
-    )
+    shard_path = storage.nodes_dir / "node_0" / "chunk_003_shard_0.bin"
     shard_path.write_bytes(b"tampered data")
 
     available = storage.load_available_shards("chunk_003")
@@ -257,7 +239,7 @@ def test_store_builds_chunk_level_merkle_commitment(storage):
         storage.get_merkle_root("chunk_commitment"),
     )
 
-    assert chunk == shard[:len(chunk)]
+    assert chunk == shard[: len(chunk)]
 
 
 def test_delete_chunk_removes_shards_and_manifest(storage):

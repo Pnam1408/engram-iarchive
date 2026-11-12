@@ -1,4 +1,4 @@
-#engram/storage.py
+# engram/storage.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -61,10 +61,7 @@ class StorageManager:
         self.nodes_dir.mkdir(parents=True, exist_ok=True)
         self.manifests_dir.mkdir(parents=True, exist_ok=True)
 
-        self.node_dirs = [
-            self.nodes_dir / f"node_{i}"
-            for i in range(node_count)
-        ]
+        self.node_dirs = [self.nodes_dir / f"node_{i}" for i in range(node_count)]
         for node_dir in self.node_dirs:
             node_dir.mkdir(parents=True, exist_ok=True)
 
@@ -95,10 +92,7 @@ class StorageManager:
         if not 0 <= shard_index < self.node_count:
             raise IndexError(f"Invalid shard index: {shard_index}")
 
-        return (
-            self.node_dirs[shard_index]
-            / f"{chunk_id}_shard_{shard_index}.bin"
-        )
+        return self.node_dirs[shard_index] / f"{chunk_id}_shard_{shard_index}.bin"
 
     @staticmethod
     def _sha256(data: bytes) -> str:
@@ -145,9 +139,7 @@ class StorageManager:
         try:
             manifest = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            raise ValueError(
-                f"Cannot read manifest for chunk {chunk_id!r}"
-            ) from exc
+            raise ValueError(f"Cannot read manifest for chunk {chunk_id!r}") from exc
 
         if manifest.get("chunk_id") != chunk_id:
             raise ValueError("Manifest chunk_id does not match requested ID")
@@ -171,7 +163,6 @@ class StorageManager:
 
         return MerkleTree(levels=tuple(levels))
 
-    
     def _validate_shards(
         self,
         chunk_id: str,
@@ -184,9 +175,7 @@ class StorageManager:
             raise ValueError("Cannot store an empty shard collection")
 
         if len(shards) != self.node_count:
-            raise ValueError(
-                f"Expected {self.node_count} shards, got {len(shards)}"
-            )
+            raise ValueError(f"Expected {self.node_count} shards, got {len(shards)}")
 
         if any(not isinstance(shard, bytes) or not shard for shard in shards):
             raise ValueError("Every shard must be non-empty bytes")
@@ -212,10 +201,7 @@ class StorageManager:
         if not shards:
             raise ValueError("Cannot build commitment for empty shards")
 
-        shard_trees = [
-            build_chunk_merkle_tree(shard)
-            for shard in shards
-        ]
+        shard_trees = [build_chunk_merkle_tree(shard) for shard in shards]
 
         shard_roots = tuple(tree.root for tree in shard_trees)
 
@@ -238,33 +224,29 @@ class StorageManager:
         chunk_id = self._validate_chunk_id(chunk_id)
 
         if len(shards) != self.node_count:
-            raise ValueError(
-                f"Expected {self.node_count} shards, got {len(shards)}"
-            )
+            raise ValueError(f"Expected {self.node_count} shards, got {len(shards)}")
 
         records: list[dict[str, Any]] = []
 
         for index, shard in enumerate(shards):
             if not isinstance(shard, bytes) or not shard:
-                raise ValueError(
-                    f"Shard {index} must be non-empty bytes"
-                )
+                raise ValueError(f"Shard {index} must be non-empty bytes")
 
             shard_path = self._shard_path(chunk_id, index)
 
             if shard_path.exists():
-                raise FileExistsError(
-                    f"Shard file already exists: {shard_path}"
-                )
+                raise FileExistsError(f"Shard file already exists: {shard_path}")
 
             self._atomic_write(shard_path, shard)
             self.bytes_written += len(shard)
 
-            records.append({
-                "index": index,
-                "size": len(shard),
-                "file": shard_path.name,
-            })
+            records.append(
+                {
+                    "index": index,
+                    "size": len(shard),
+                    "file": shard_path.name,
+                }
+            )
 
         return records
 
@@ -292,10 +274,12 @@ class StorageManager:
         manifest_shards: list[dict[str, Any]] = []
 
         for shard, record in zip(shards, shard_records):
-            manifest_shards.append({
-                **record,
-                "sha256": self._sha256(shard),
-            })
+            manifest_shards.append(
+                {
+                    **record,
+                    "sha256": self._sha256(shard),
+                }
+            )
 
         return {
             "chunk_id": chunk_id,
@@ -303,13 +287,8 @@ class StorageManager:
             "data_shards": int(encoded.data_shards),
             "total_shards": len(shards),
             "shards": manifest_shards,
-            "shard_roots": [
-                self._encode_hash(root)
-                for root in commitment.shard_roots
-            ],
-            "merkle_root": self._encode_hash(
-                commitment.global_tree.root
-            ),
+            "shard_roots": [self._encode_hash(root) for root in commitment.shard_roots],
+            "merkle_root": self._encode_hash(commitment.global_tree.root),
             "merkle_levels": [
                 [self._encode_hash(value) for value in level]
                 for level in commitment.global_tree.levels
@@ -380,7 +359,6 @@ class StorageManager:
             data_shards=int(encoded.data_shards),
             total_shards=len(shards),
         )
-
 
     def delete_chunk(self, chunk_id: str) -> int:
         """Delete a chunk and return the number of shard bytes removed."""
@@ -464,9 +442,7 @@ class StorageManager:
             size = int(record["size"])
             count = (size + CHUNK_BYTES - 1) // CHUNK_BYTES
             if count <= 0:
-                raise ValueError(
-                    f"Shard {record['index']} has no chunks"
-                )
+                raise ValueError(f"Shard {record['index']} has no chunks")
             counts.append(count)
 
         return tuple(counts)
@@ -507,13 +483,9 @@ class StorageManager:
 
         # Rebuild the requested shard's chunk tree.
         chunk_tree = build_chunk_merkle_tree(shard_data)
-        stored_shard_root = self._decode_hash(
-            manifest["shard_roots"][shard_index]
-        )
+        stored_shard_root = self._decode_hash(manifest["shard_roots"][shard_index])
         if chunk_tree.root != stored_shard_root:
-            raise ValueError(
-                "Rebuilt chunk tree root does not match stored shard root"
-            )
+            raise ValueError("Rebuilt chunk tree root does not match stored shard root")
 
         if not 0 <= chunk_index < chunk_tree.leaf_count:
             raise IndexError(
@@ -522,7 +494,7 @@ class StorageManager:
             )
 
         start = chunk_index * CHUNK_BYTES
-        chunk_data = shard_data[start:start + CHUNK_BYTES]
+        chunk_data = shard_data[start : start + CHUNK_BYTES]
 
         chunk_proof = chunk_tree.generate_proof(chunk_index)
 
@@ -542,23 +514,18 @@ class StorageManager:
         chunk_id: str,
     ) -> tuple[int, int]:
         """Return (shard_bytes_len, total_shards).
-    
+
         All shards must have equal size.
         """
-    
+
         manifest = self._read_manifest(chunk_id)
-    
-        sizes = [
-            int(record["size"])
-            for record in manifest["shards"]
-        ]
-    
+
+        sizes = [int(record["size"]) for record in manifest["shards"]]
+
         if not sizes:
             raise ValueError("Manifest contains no shards")
-    
+
         if len(set(sizes)) != 1:
-            raise ValueError(
-                "All shards must have the same size"
-            )
-    
+            raise ValueError("All shards must have the same size")
+
         return sizes[0], int(manifest["total_shards"])

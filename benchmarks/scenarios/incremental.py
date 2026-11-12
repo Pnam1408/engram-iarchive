@@ -1,4 +1,4 @@
-#benchmarks/scenarios/incremental.py
+# benchmarks/scenarios/incremental.py
 """B1 incremental-storage benchmark for ENGRAM-iARCHIVE.
 
 Each append adds only a delta. Deltas are grouped into generations according
@@ -10,6 +10,7 @@ Run from the repository root:
         --initial-size-mib 1 --delta-size-mib 0.1 --updates 5 \
         --batch-size 2 --repeat 3 --warmup 1
 """
+
 from __future__ import annotations
 
 import argparse
@@ -44,9 +45,7 @@ def _validate_args(args: argparse.Namespace) -> None:
     for name in ("initial_size_mib", "delta_size_mib"):
         value = getattr(args, name)
         if not math.isfinite(value) or value <= 0:
-            raise ValueError(
-                f"--{name.replace('_', '-')} must be a finite number > 0"
-            )
+            raise ValueError(f"--{name.replace('_', '-')} must be a finite number > 0")
 
     if args.updates < 0:
         raise ValueError("--updates must be >= 0")
@@ -57,9 +56,7 @@ def _validate_args(args: argparse.Namespace) -> None:
     if args.warmup < 0:
         raise ValueError("--warmup must be >= 0")
     if not (1 <= args.data_shards < args.total_shards <= 255):
-        raise ValueError(
-            "Require 1 <= data-shards < total-shards <= 255"
-        )
+        raise ValueError("Require 1 <= data-shards < total-shards <= 255")
     if args.chunk_size <= 0:
         raise ValueError("--chunk-size must be > 0")
 
@@ -100,10 +97,7 @@ def _summarize_rows(
     }
 
     for group_value in groups:
-        group = [
-            row for row in rows
-            if int(row[group_field]) == group_value
-        ]
+        group = [row for row in rows if int(row[group_field]) == group_value]
 
         numeric_rows = [
             {
@@ -125,6 +119,7 @@ def _summarize_rows(
 
     return output
 
+
 def measure_seal(
     store: TimedIncrementalStore,
     object_id: str,
@@ -141,26 +136,21 @@ def measure_seal(
 
     timings = store.stage_timings.copy()
 
-    measured_stage_ms = sum(
-        timings.get(name, 0.0)
-        for name in STAGE_NAMES
+    measured_stage_ms = sum(timings.get(name, 0.0) for name in STAGE_NAMES)
+
+    stage_rows.append(
+        {
+            "scenario": "incremental",
+            "run_index": run_index,
+            "generation_index": generation_index,
+            **{f"{name}_ms": timings.get(name, 0.0) for name in STAGE_NAMES},
+            "seal_total_ms": seal_ms,
+            "seal_unattributed_ms": max(0.0, seal_ms - measured_stage_ms),
+        }
     )
 
-    stage_rows.append({
-        "scenario": "incremental",
-        "run_index": run_index,
-        "generation_index": generation_index,
-        **{
-            f"{name}_ms": timings.get(name, 0.0)
-            for name in STAGE_NAMES
-        },
-        "seal_total_ms": seal_ms,
-        "seal_unattributed_ms": max(
-            0.0, seal_ms - measured_stage_ms
-        ),
-    })
-
     return True, seal_ms
+
 
 def run_sequence(
     initial_data: bytes,
@@ -168,12 +158,12 @@ def run_sequence(
     run_index: int,
     args: argparse.Namespace,
 ) -> tuple[
-        list[dict[str, Any]], # version_rows
-        list[dict[str, Any]], # generation_rows
-        list[dict[str, Any]], # stage_rows
-        dict[str, Any], # sequence_row
-        dict[str, Any], # challenge_row
-    ]:
+    list[dict[str, Any]],  # version_rows
+    list[dict[str, Any]],  # generation_rows
+    list[dict[str, Any]],  # stage_rows
+    dict[str, Any],  # sequence_row
+    dict[str, Any],  # challenge_row
+]:
     """Execute one independent incremental-storage sequence."""
     object_id = f"benchmark-object-{uuid.uuid4().hex[:12]}"
     expected_snapshots = _build_expected_snapshots(initial_data, deltas)
@@ -183,9 +173,7 @@ def run_sequence(
     stage_rows: list[dict[str, Any]] = []
 
     # A unique temporary root isolates every measured sequence.
-    with tempfile.TemporaryDirectory(
-        prefix="engram_incremental_"
-    ) as temp_dir:
+    with tempfile.TemporaryDirectory(prefix="engram_incremental_") as temp_dir:
         store = TimedIncrementalStore(
             Path(temp_dir) / "store",
             data_shards=args.data_shards,
@@ -207,9 +195,7 @@ def run_sequence(
 
         # The initial object is represented by the first Store version.
         # Store version 1 maps to logical benchmark version 0.
-        append_record, append_ms = measure_ms(
-            store.append, object_id, initial_data
-        )
+        append_record, append_ms = measure_ms(store.append, object_id, initial_data)
         total_append_ms += append_ms
 
         initial_seal_ms = 0.0
@@ -227,34 +213,33 @@ def run_sequence(
         sealed_generation_count += 1
         total_generation_plaintext_bytes += len(initial_data)
 
-        version_rows.append({
-            "scenario": "incremental",
-            "run_index": run_index,
-            "logical_version": 0,
-            "store_version": int(append_record["version"]),
-            "delta_size_bytes": 0,
-            "append_size_bytes": len(initial_data),
-            "snapshot_size_bytes": len(expected_snapshots[0]),
-            "append_ms": append_ms,
-            "seal_ms": initial_seal_ms,
-            "write_total_ms": append_ms + initial_seal_ms,
-            "append_status": append_record.get("status"),
-            "generation_sealed": True,
-            "data_shards": args.data_shards,
-            "total_shards": args.total_shards,
-            "batch_size": args.batch_size,
-        })
+        version_rows.append(
+            {
+                "scenario": "incremental",
+                "run_index": run_index,
+                "logical_version": 0,
+                "store_version": int(append_record["version"]),
+                "delta_size_bytes": 0,
+                "append_size_bytes": len(initial_data),
+                "snapshot_size_bytes": len(expected_snapshots[0]),
+                "append_ms": append_ms,
+                "seal_ms": initial_seal_ms,
+                "write_total_ms": append_ms + initial_seal_ms,
+                "append_status": append_record.get("status"),
+                "generation_sealed": True,
+                "data_shards": args.data_shards,
+                "total_shards": args.total_shards,
+                "batch_size": args.batch_size,
+            }
+        )
 
         # Append deltas and seal after every complete batch.
         for delta_index, delta in enumerate(deltas, start=1):
-            record, append_ms = measure_ms(
-                store.append, object_id, delta
-            )
+            record, append_ms = measure_ms(store.append, object_id, delta)
             total_append_ms += append_ms
 
-            is_batch_end = (
-                delta_index % args.batch_size == 0
-                or delta_index == len(deltas)
+            is_batch_end = delta_index % args.batch_size == 0 or delta_index == len(
+                deltas
             )
 
             seal_ms = 0.0
@@ -281,25 +266,25 @@ def run_sequence(
                 sealed_generation_count += 1
 
             logical_version = delta_index
-            version_rows.append({
-                "scenario": "incremental",
-                "run_index": run_index,
-                "logical_version": logical_version,
-                "store_version": int(record["version"]),
-                "delta_size_bytes": len(delta),
-                "append_size_bytes": len(delta),
-                "snapshot_size_bytes": len(
-                    expected_snapshots[logical_version]
-                ),
-                "append_ms": append_ms,
-                "seal_ms": seal_ms,
-                "write_total_ms": append_ms + seal_ms,
-                "append_status": record.get("status"),
-                "generation_sealed": is_batch_end,
-                "data_shards": args.data_shards,
-                "total_shards": args.total_shards,
-                "batch_size": args.batch_size,
-            })
+            version_rows.append(
+                {
+                    "scenario": "incremental",
+                    "run_index": run_index,
+                    "logical_version": logical_version,
+                    "store_version": int(record["version"]),
+                    "delta_size_bytes": len(delta),
+                    "append_size_bytes": len(delta),
+                    "snapshot_size_bytes": len(expected_snapshots[logical_version]),
+                    "append_ms": append_ms,
+                    "seal_ms": seal_ms,
+                    "write_total_ms": append_ms + seal_ms,
+                    "append_status": record.get("status"),
+                    "generation_sealed": is_batch_end,
+                    "data_shards": args.data_shards,
+                    "total_shards": args.total_shards,
+                    "batch_size": args.batch_size,
+                }
+            )
 
         # Read generation metadata after write timings have completed.
         # _load() is an internal metadata accessor; it is used here only
@@ -310,32 +295,26 @@ def run_sequence(
 
         for generation_index, generation in enumerate(generations):
             generation_id = generation["generation_id"]
-            storage_metadata = store.storage.get_chunk_metadata(
-                generation_id
-            )
+            storage_metadata = store.storage.get_chunk_metadata(generation_id)
 
-            generation_rows.append({
-                "scenario": "incremental",
-                "run_index": run_index,
-                "generation_index": generation_index,
-                "generation_id": generation_id,
-                "start_store_version": generation["start_version"],
-                "end_store_version": generation["end_version"],
-                "start_logical_version": int(
-                    generation["start_version"]
-                ) - 1,
-                "end_logical_version": int(
-                    generation["end_version"]
-                ) - 1,
-                "generation_plaintext_bytes": generation[
-                    "plaintext_size_bytes"
-                ],
-                "generation_ciphertext_bytes": storage_metadata.original_size,
-                "chunk_root": generation["chunk_root"],
-                "status": generation["status"],
-                "data_shards": generation["data_shards"],
-                "total_shards": generation["total_shards"],
-            })
+            generation_rows.append(
+                {
+                    "scenario": "incremental",
+                    "run_index": run_index,
+                    "generation_index": generation_index,
+                    "generation_id": generation_id,
+                    "start_store_version": generation["start_version"],
+                    "end_store_version": generation["end_version"],
+                    "start_logical_version": int(generation["start_version"]) - 1,
+                    "end_logical_version": int(generation["end_version"]) - 1,
+                    "generation_plaintext_bytes": generation["plaintext_size_bytes"],
+                    "generation_ciphertext_bytes": storage_metadata.original_size,
+                    "chunk_root": generation["chunk_root"],
+                    "status": generation["status"],
+                    "data_shards": generation["data_shards"],
+                    "total_shards": generation["total_shards"],
+                }
+            )
 
         # Retrieve every version and compare with its expected snapshot.
         retrieval_rows: list[dict[str, Any]] = []
@@ -354,27 +333,25 @@ def run_sequence(
                     f"Retrieval mismatch at logical version {logical_version}"
                 )
 
-            retrieval_rows.append({
-                "scenario": "incremental",
-                "run_index": run_index,
-                "logical_version": logical_version,
-                "store_version": store_version,
-                "snapshot_size_bytes": len(expected),
-                "retrieval_ms": retrieval_ms,
-                "retrieval_success": success,
-            })
+            retrieval_rows.append(
+                {
+                    "scenario": "incremental",
+                    "run_index": run_index,
+                    "logical_version": logical_version,
+                    "store_version": store_version,
+                    "snapshot_size_bytes": len(expected),
+                    "retrieval_ms": retrieval_ms,
+                    "retrieval_success": success,
+                }
+            )
 
         # Verify the complete version/generation history.
-        history_valid, verify_history_ms = measure_ms(
-            store.verify_history, object_id
-        )
+        history_valid, verify_history_ms = measure_ms(store.verify_history, object_id)
         if not history_valid:
             raise RuntimeError("Incremental history verification failed")
 
         # Attach retrieval measurements to the corresponding version rows.
-        retrieval_by_version = {
-            row["logical_version"]: row for row in retrieval_rows
-        }
+        retrieval_by_version = {row["logical_version"]: row for row in retrieval_rows}
         for row in version_rows:
             retrieval = retrieval_by_version[row["logical_version"]]
             row["retrieval_ms"] = retrieval["retrieval_ms"]
@@ -398,17 +375,17 @@ def run_sequence(
             k=3,
         )
 
-        challenge_row.update({
-            "scenario": "incremental",
-            "run_index": run_index,
-            "data_shards": args.data_shards,
-            "total_shards": args.total_shards,
-            "batch_size": args.batch_size,
-        })
+        challenge_row.update(
+            {
+                "scenario": "incremental",
+                "run_index": run_index,
+                "data_shards": args.data_shards,
+                "total_shards": args.total_shards,
+                "batch_size": args.batch_size,
+            }
+        )
 
-        sequence_wall_ms = (
-            time.perf_counter() - sequence_start
-        ) * 1000.0
+        sequence_wall_ms = (time.perf_counter() - sequence_start) * 1000.0
 
         sequence_row = {
             "scenario": "incremental",
@@ -420,12 +397,9 @@ def run_sequence(
             "total_delta_bytes": total_delta_bytes,
             "final_size_bytes": len(expected_snapshots[-1]),
             "total_logical_bytes": total_logical_bytes,
-            "total_generation_plaintext_bytes": (
-                total_generation_plaintext_bytes
-            ),
+            "total_generation_plaintext_bytes": (total_generation_plaintext_bytes),
             "total_generation_ciphertext_bytes": sum(
-                row["generation_ciphertext_bytes"]
-                for row in generation_rows
+                row["generation_ciphertext_bytes"] for row in generation_rows
             ),
             "stored_shard_bytes": stored_shard_bytes,
             "processing_amplification": processing_amplification,
@@ -521,16 +495,15 @@ def main(argv: Sequence[str] | None = None) -> None:
         sequence_rows.append(sequence)
         challenge_rows.append(challenge)
 
-    version_summary = _summarize_rows(
-        version_rows, "logical_version"
-    )
+    version_summary = _summarize_rows(version_rows, "logical_version")
     sequence_numeric = [
         {
             key: value
             for key, value in row.items()
             if isinstance(value, (int, float))
             and not isinstance(value, bool)
-            and key not in {
+            and key
+            not in {
                 "run_index",
                 "versions_processed",
                 "generation_count",
@@ -548,9 +521,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     summary = {
         "benchmark": "B1_incremental_storage",
-        "description": (
-            "Append deltas into generations; seal each generation once."
-        ),
+        "description": ("Append deltas into generations; seal each generation once."),
         "config": {
             "initial_size_bytes": initial_size_bytes,
             "delta_size_bytes": delta_size_bytes,
@@ -577,34 +548,28 @@ def main(argv: Sequence[str] | None = None) -> None:
         "generation_summary": {
             "runs": len(generation_rows),
             "generation_count_per_run": (
-                len(generation_rows) // args.repeat
-                if args.repeat
-                else 0
+                len(generation_rows) // args.repeat if args.repeat else 0
             ),
             "total_generation_plaintext_bytes_per_run": (
                 statistics.mean(
-                    row["total_generation_plaintext_bytes"]
-                    for row in sequence_rows
+                    row["total_generation_plaintext_bytes"] for row in sequence_rows
                 )
                 if sequence_rows
                 else 0
             ),
         },
         "stage_summary": {
-            stage: numeric_summary([
-                {f"{stage}_ms": row[f"{stage}_ms"]}
-                for row in stage_rows
-            ])
+            stage: numeric_summary(
+                [{f"{stage}_ms": row[f"{stage}_ms"]} for row in stage_rows]
+            )
             for stage in STAGE_NAMES
         },
         "success": {
             "all_retrievals": all(
-                row["all_retrievals_success"]
-                for row in sequence_rows
+                row["all_retrievals_success"] for row in sequence_rows
             ),
             "all_history_verifications": all(
-                row["history_verification_success"]
-                for row in sequence_rows
+                row["history_verification_success"] for row in sequence_rows
             ),
         },
     }

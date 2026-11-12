@@ -1,4 +1,5 @@
 """MMR inclusion proof generation and independent verification."""
+
 from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
@@ -13,7 +14,8 @@ def generate_inclusion_proof(accumulator: Any, leaf_index: int) -> InclusionProo
         raise IndexError("leaf_index is outside the MMR")
     layout = peak_layout(accumulator.leaf_count)
     peak_index = next(
-        i for i, (start, height) in enumerate(layout)
+        i
+        for i, (start, height) in enumerate(layout)
         if start <= leaf_index < start + (1 << height)
     )
     mountain_start, mountain_height = layout[peak_index]
@@ -24,10 +26,12 @@ def generate_inclusion_proof(accumulator: Any, leaf_index: int) -> InclusionProo
         sibling_group = group_index ^ 1
         sibling_start = mountain_start + sibling_group * (1 << height)
         side = "left" if group_index & 1 else "right"
-        siblings.append({
-            "side": side,
-            "hash": accumulator.get_node(sibling_start, height).hex(),
-        })
+        siblings.append(
+            {
+                "side": side,
+                "hash": accumulator.get_node(sibling_start, height).hex(),
+            }
+        )
     return {
         "leaf_index": leaf_index,
         "mmr_size": accumulator.leaf_count,
@@ -35,14 +39,19 @@ def generate_inclusion_proof(accumulator: Any, leaf_index: int) -> InclusionProo
         "leaf_hash": accumulator.get_node(leaf_index, 0).hex(),
         "siblings": siblings,
         "peaks": [
-            {"start_leaf": start, "height": height,
-             "hash": accumulator.get_node(start, height).hex()}
+            {
+                "start_leaf": start,
+                "height": height,
+                "hash": accumulator.get_node(start, height).hex(),
+            }
             for start, height in layout
         ],
     }
 
 
-def verify_inclusion_proof(proof: Mapping[str, Any], expected_root: bytes | str) -> bool:
+def verify_inclusion_proof(
+    proof: Mapping[str, Any], expected_root: bytes | str
+) -> bool:
     """Verify without access to the accumulator or persisted node database."""
     try:
         leaf_index = proof["leaf_index"]
@@ -76,7 +85,11 @@ def verify_inclusion_proof(proof: Mapping[str, Any], expected_root: bytes | str)
             expected_side = "left" if ((local_index >> height) & 1) else "right"
             if sibling["side"] != expected_side:
                 return False
-            current = hash_node(sibling_hash, current) if expected_side == "left" else hash_node(current, sibling_hash)
+            current = (
+                hash_node(sibling_hash, current)
+                if expected_side == "left"
+                else hash_node(current, sibling_hash)
+            )
         selected_hash = current
         for i, (start, height) in enumerate(layout):
             item = proof["peaks"][i]
@@ -89,7 +102,11 @@ def verify_inclusion_proof(proof: Mapping[str, Any], expected_root: bytes | str)
                 return False
             expected_peaks.append((height, digest))
         calculated = hash_root(mmr_size, expected_peaks)
-        root = bytes.fromhex(expected_root) if isinstance(expected_root, str) else expected_root
+        root = (
+            bytes.fromhex(expected_root)
+            if isinstance(expected_root, str)
+            else expected_root
+        )
         return len(root) == HASH_SIZE and calculated == root
     except (KeyError, TypeError, ValueError, OverflowError):
         return False

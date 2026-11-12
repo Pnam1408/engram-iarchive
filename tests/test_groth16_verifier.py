@@ -1,4 +1,3 @@
-
 # tests/test_groth16_verifier.py
 
 import json
@@ -20,7 +19,6 @@ from engram.groth16_verifier import (
     verify_groth16_challenge,
     _is_snarkjs_verification_success,
 )
-
 
 # ---------------------------------------------------------------------
 # Helpers
@@ -141,6 +139,7 @@ def make_three_artifacts(
 # ---------------------------------------------------------------------
 # Single-proof verification
 # ---------------------------------------------------------------------
+
 
 class TestVerifyGroth16Proof:
 
@@ -380,6 +379,7 @@ class TestVerifyGroth16Proof:
 # ---------------------------------------------------------------------
 # Challenge-level verification
 # ---------------------------------------------------------------------
+
 
 class TestVerifyGroth16Challenge:
 
@@ -622,9 +622,7 @@ class TestVerifyGroth16Challenge:
 
     def test_wrong_p_in_one_artifact(self, tmp_path):
         targets = make_three_targets()
-        artifacts = list(
-            make_three_artifacts(tmp_path, targets)
-        )
+        artifacts = list(make_three_artifacts(tmp_path, targets))
 
         artifacts[1] = Groth16ProofArtifact(
             target=artifacts[1].target,
@@ -680,14 +678,12 @@ class TestVerifyGroth16Challenge:
                 expected_p=b"invalid",
             )
 
-
     def test_snarkjs_success_plain_output(self):
         assert _is_snarkjs_verification_success(
             0,
             "[INFO]  snarkJS: OK!\n",
             "",
         )
-
 
     def test_snarkjs_success_ansi_output(self):
         assert _is_snarkjs_verification_success(
@@ -696,14 +692,12 @@ class TestVerifyGroth16Challenge:
             "",
         )
 
-
     def test_snarkjs_failure_nonzero_returncode(self):
         assert not _is_snarkjs_verification_success(
             1,
             "[INFO]  snarkJS: OK!\n",
             "",
         )
-
 
     def test_snarkjs_failure_invalid_proof(self):
         assert not _is_snarkjs_verification_success(

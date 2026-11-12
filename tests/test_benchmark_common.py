@@ -1,12 +1,17 @@
 import unittest
 
 from benchmarks.common.workload import (
-    build_snapshots, deterministic_bytes, deterministic_payload,
+    build_snapshots,
+    deterministic_bytes,
+    deterministic_payload,
     generate_update_workload,
 )
 from benchmarks.common.statistics import (
-    median_confidence_interval, numeric_summary, percentile_linear,
-    percentile_nearest_rank, summarize_pipeline_rows,
+    median_confidence_interval,
+    numeric_summary,
+    percentile_linear,
+    percentile_nearest_rank,
+    summarize_pipeline_rows,
 )
 
 
@@ -49,21 +54,33 @@ class StatisticsTests(unittest.TestCase):
         )
 
     def test_numeric_summary_ignores_booleans(self):
-        result = numeric_summary([
-            {"latency_ms": 1.0, "passed": True},
-            {"latency_ms": 3.0, "passed": False},
-        ])
+        result = numeric_summary(
+            [
+                {"latency_ms": 1.0, "passed": True},
+                {"latency_ms": 3.0, "passed": False},
+            ]
+        )
         self.assertEqual(result["latency_ms"]["median"], 2.0)
         self.assertNotIn("passed", result)
 
     def test_pipeline_summary_schema(self):
         rows = [
-            {"source_file": "a.bin", "run_type": "measurement", "repeat": 1,
-             "pipeline_end_to_end_ms": 10.0, "reconstruction_success": True,
-             "python_merkle_proof_success": True},
-            {"source_file": "a.bin", "run_type": "measurement", "repeat": 2,
-             "pipeline_end_to_end_ms": 12.0, "reconstruction_success": True,
-             "python_merkle_proof_success": True},
+            {
+                "source_file": "a.bin",
+                "run_type": "measurement",
+                "repeat": 1,
+                "pipeline_end_to_end_ms": 10.0,
+                "reconstruction_success": True,
+                "python_merkle_proof_success": True,
+            },
+            {
+                "source_file": "a.bin",
+                "run_type": "measurement",
+                "repeat": 2,
+                "pipeline_end_to_end_ms": 12.0,
+                "reconstruction_success": True,
+                "python_merkle_proof_success": True,
+            },
         ]
         summary = summarize_pipeline_rows(rows)
         self.assertEqual(len(summary), 1)

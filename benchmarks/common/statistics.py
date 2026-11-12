@@ -1,9 +1,10 @@
-#benchmarks/common/statistics.py
+# benchmarks/common/statistics.py
 """Shared statistical helpers for ENGRAM benchmark results.
 
 The current scripts use two percentile conventions. Both are preserved under
 explicit names so refactoring does not silently change reported p95 values.
 """
+
 from __future__ import annotations
 
 import math
@@ -62,8 +63,7 @@ def median_confidence_interval(
         return values[0], values[0]
     rng = random.Random(seed)
     boot_medians = [
-        _statistics.median(rng.choices(values, k=len(values)))
-        for _ in range(samples)
+        _statistics.median(rng.choices(values, k=len(values))) for _ in range(samples)
     ]
     return (
         percentile_nearest_rank(boot_medians, 2.5),
@@ -73,14 +73,19 @@ def median_confidence_interval(
 
 def numeric_summary(rows: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
     """Summarize numeric columns, matching the full-snapshot schema."""
-    keys = sorted({
-        key for row in rows for key, value in row.items()
-        if isinstance(value, (int, float)) and not isinstance(value, bool)
-    })
+    keys = sorted(
+        {
+            key
+            for row in rows
+            for key, value in row.items()
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        }
+    )
     summary: dict[str, Any] = {}
     for key in keys:
         values = [
-            float(row[key]) for row in rows
+            float(row[key])
+            for row in rows
             if isinstance(row.get(key), (int, float))
             and not isinstance(row.get(key), bool)
         ]
@@ -111,16 +116,24 @@ def summarize_pipeline_rows(
     output: list[dict[str, Any]] = []
     for group_index, ((source_file, run_type), group) in enumerate(groups.items()):
         item: dict[str, Any] = {
-            "source_file": source_file, "run_type": run_type, "runs": len(group)
+            "source_file": source_file,
+            "run_type": run_type,
+            "runs": len(group),
         }
-        keys = sorted({
-            key for row in group for key, value in row.items()
-            if isinstance(value, (int, float))
-            and not isinstance(value, bool) and key != "repeat"
-        })
+        keys = sorted(
+            {
+                key
+                for row in group
+                for key, value in row.items()
+                if isinstance(value, (int, float))
+                and not isinstance(value, bool)
+                and key != "repeat"
+            }
+        )
         for i, key in enumerate(keys):
             values = [
-                float(row[key]) for row in group
+                float(row[key])
+                for row in group
                 if isinstance(row.get(key), (int, float))
                 and not isinstance(row.get(key), bool)
             ]

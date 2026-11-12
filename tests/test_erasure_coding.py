@@ -1,4 +1,3 @@
-
 import random
 
 import pytest
@@ -11,9 +10,7 @@ def test_encode_decode_all_shards():
 
     encoded = encode(original, data_shards=4, total_shards=6)
 
-    available = {
-        i: shard for i, shard in enumerate(encoded.shards)
-    }
+    available = {i: shard for i, shard in enumerate(encoded.shards)}
 
     restored = decode(
         available,
@@ -31,11 +28,7 @@ def test_recover_when_two_shards_are_missing():
     encoded = encode(original, data_shards=4, total_shards=6)
 
     # Mất shard 1 và shard 4.
-    available = {
-        i: shard
-        for i, shard in enumerate(encoded.shards)
-        if i not in {1, 4}
-    }
+    available = {i: shard for i, shard in enumerate(encoded.shards) if i not in {1, 4}}
 
     restored = decode(
         available,
@@ -50,9 +43,7 @@ def test_recover_when_two_shards_are_missing():
 def test_not_enough_shards():
     encoded = encode(b"test data", data_shards=4, total_shards=6)
 
-    available = {
-        i: encoded.shards[i] for i in range(3)
-    }
+    available = {i: encoded.shards[i] for i in range(3)}
 
     with pytest.raises(ValueError, match="Not enough shards"):
         decode(
@@ -66,9 +57,7 @@ def test_not_enough_shards():
 def test_empty_data():
     encoded = encode(b"", data_shards=4, total_shards=6)
 
-    available = {
-        i: encoded.shards[i] for i in [0, 2, 4, 5]
-    }
+    available = {i: encoded.shards[i] for i in [0, 2, 4, 5]}
 
     restored = decode(
         available,
@@ -79,6 +68,7 @@ def test_empty_data():
 
     assert restored == b""
 
+
 def test_decode_various_shard_sets():
     rng = random.Random(2026)
 
@@ -88,10 +78,7 @@ def test_decode_various_shard_sets():
         (6, 8),
     ]:
         for size in [0, 1, 100, 1024, 65536]:
-            original = bytes(
-                rng.randrange(256)
-                for _ in range(size)
-            )
+            original = bytes(rng.randrange(256) for _ in range(size))
 
             encoded = encode(
                 original,
@@ -108,10 +95,7 @@ def test_decode_various_shard_sets():
                     )
                 )
 
-                available = {
-                    i: encoded.shards[i]
-                    for i in indices
-                }
+                available = {i: encoded.shards[i] for i in indices}
 
                 recovered = decode(
                     available,

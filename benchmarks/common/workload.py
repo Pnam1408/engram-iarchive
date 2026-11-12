@@ -1,4 +1,4 @@
-#benchmarks/common/workload.py
+# benchmarks/common/workload.py
 """Deterministic workload generators shared by ENGRAM benchmarks.
 
 The two byte-generation algorithms intentionally preserve existing workloads:
@@ -8,6 +8,7 @@ The two byte-generation algorithms intentionally preserve existing workloads:
 Do not merge/change these algorithms without versioning the workload, because
 doing so changes input hashes and experimental inputs.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -17,6 +18,7 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class UpdateWorkload:
     """Initial object plus a fixed sequence of append deltas."""
+
     initial_data: bytes
     deltas: tuple[bytes, ...]
 
@@ -73,8 +75,7 @@ def generate_update_workload(
         raise ValueError("num_deltas must be >= 0")
     initial = deterministic_bytes(initial_size, seed)
     deltas = tuple(
-        deterministic_bytes(delta_size, seed + i)
-        for i in range(1, num_deltas + 1)
+        deterministic_bytes(delta_size, seed + i) for i in range(1, num_deltas + 1)
     )
     return UpdateWorkload(initial_data=initial, deltas=deltas)
 

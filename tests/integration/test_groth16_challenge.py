@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import json
@@ -23,7 +22,6 @@ from engram.groth16_verifier import (
     RegisteredGroth16Commitment,
     verify_groth16_challenge,
 )
-
 
 ROOT = Path(__file__).resolve().parents[2]
 ZK_DIR = ROOT / "zk"
@@ -82,20 +80,22 @@ def test_real_groth16_challenge_verification(
     # -------------------------------------------------------------
 
     if os.getenv("RUN_GROTH16_INTEGRATION") != "1":
-        pytest.skip(
-            "Set RUN_GROTH16_INTEGRATION=1 to run this test"
-        )
+        pytest.skip("Set RUN_GROTH16_INTEGRATION=1 to run this test")
 
     require_tool("circom")
     require_tool("node")
     require_tool("npx")
 
-    ptau_path = Path(
-        os.getenv(
-            "PTAU_PATH",
-            str(ZK_DIR / "build" / "powersOfTau28_hez_final_16.ptau"),
+    ptau_path = (
+        Path(
+            os.getenv(
+                "PTAU_PATH",
+                str(ZK_DIR / "build" / "powersOfTau28_hez_final_16.ptau"),
+            )
         )
-    ).expanduser().resolve()
+        .expanduser()
+        .resolve()
+    )
 
     if not ptau_path.is_file():
         pytest.skip(f"Powers of Tau file not found: {ptau_path}")
@@ -161,9 +161,7 @@ def test_real_groth16_challenge_verification(
     # 4. Create one challenge with three targets
     # -------------------------------------------------------------
 
-    chunks_per_shard = tuple(
-        storage.get_chunk_counts(commitment_id)
-    )
+    chunks_per_shard = tuple(storage.get_chunk_counts(commitment_id))
 
     challenge = create_challenge(
         chunk_id=commitment_id,
@@ -200,9 +198,7 @@ def test_real_groth16_challenge_verification(
     build_dir.mkdir(parents=True)
     circuit_dir.mkdir(parents=True)
 
-    generated_circuit = (
-        circuit_dir / "engram_integration_generated.circom"
-    )
+    generated_circuit = circuit_dir / "engram_integration_generated.circom"
 
     generate_circuit(
         template_path=TEMPLATE,
@@ -233,16 +229,8 @@ def test_real_groth16_challenge_verification(
     circuit_name = generated_circuit.stem
 
     r1cs_path = build_dir / f"{circuit_name}.r1cs"
-    wasm_path = (
-        build_dir
-        / f"{circuit_name}_js"
-        / f"{circuit_name}.wasm"
-    )
-    witness_generator = (
-        build_dir
-        / f"{circuit_name}_js"
-        / "generate_witness.js"
-    )
+    wasm_path = build_dir / f"{circuit_name}_js" / f"{circuit_name}.wasm"
+    witness_generator = build_dir / f"{circuit_name}_js" / "generate_witness.js"
 
     assert r1cs_path.is_file()
     assert wasm_path.is_file()
@@ -253,9 +241,7 @@ def test_real_groth16_challenge_verification(
     # -------------------------------------------------------------
 
     zkey_path = build_dir / "engram_integration.zkey"
-    verification_key_path = (
-        build_dir / "engram_integration_verification_key.json"
-    )
+    verification_key_path = build_dir / "engram_integration_verification_key.json"
 
     run_command(
         [
@@ -344,20 +330,20 @@ def test_real_groth16_challenge_verification(
             cwd=ZK_DIR,
         )
 
-#        import json
-#
-#        with public_path.open() as f:
-#            public_signals = json.load(f)
-#
-#        print("Expected public signals:")
-#        print([
-#            str(merkle_root),
-#            str(target.shard_index),
-#            str(target.chunk_index),
-#        ])
-#
-#        print("Actual public signals:")
-#        print(public_signals)
+        #        import json
+        #
+        #        with public_path.open() as f:
+        #            public_signals = json.load(f)
+        #
+        #        print("Expected public signals:")
+        #        print([
+        #            str(merkle_root),
+        #            str(target.shard_index),
+        #            str(target.chunk_index),
+        #        ])
+        #
+        #        print("Actual public signals:")
+        #        print(public_signals)
 
         assert proof_path.is_file()
         assert public_path.is_file()
@@ -382,26 +368,26 @@ def test_real_groth16_challenge_verification(
         ),
     }
 
-#    print("\n=== DEBUG: direct snarkjs verification ===")
-#
-#    for artifact in artifacts:
-#        print("Target:", artifact.target)
-#        print("Proof:", artifact.proof_path)
-#        print("Public:", artifact.public_path)
-#        print("VK:", verification_key_path)
-#
-#        subprocess.run(
-#            [
-#                "npx", "--no-install", "snarkjs",
-#                "groth16", "verify",
-#                str(verification_key_path),
-#                str(artifact.public_path),
-#                str(artifact.proof_path),
-#            ],
-#            cwd=ZK_DIR,
-#            check=False,
-#            text=True,
-#        )
+    #    print("\n=== DEBUG: direct snarkjs verification ===")
+    #
+    #    for artifact in artifacts:
+    #        print("Target:", artifact.target)
+    #        print("Proof:", artifact.proof_path)
+    #        print("Public:", artifact.public_path)
+    #        print("VK:", verification_key_path)
+    #
+    #        subprocess.run(
+    #            [
+    #                "npx", "--no-install", "snarkjs",
+    #                "groth16", "verify",
+    #                str(verification_key_path),
+    #                str(artifact.public_path),
+    #                str(artifact.proof_path),
+    #            ],
+    #            cwd=ZK_DIR,
+    #            check=False,
+    #            text=True,
+    #        )
 
     result = verify_groth16_challenge(
         challenge_targets=challenge_targets,

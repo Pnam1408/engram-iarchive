@@ -1,4 +1,4 @@
-#engram/incremental/challenge.py
+# engram/incremental/challenge.py
 from dataclasses import dataclass
 import hashlib
 import random
@@ -6,6 +6,7 @@ import random
 from engram.challenge_common import derive_p
 
 DEFAULT_K = 3
+
 
 @dataclass(frozen=True)
 class GenerationLayout:
@@ -45,11 +46,7 @@ def _derive_seed(
     payload = domain + p
 
     for index in indices:
-        if (
-            not isinstance(index, int)
-            or isinstance(index, bool)
-            or index < 0
-        ):
+        if not isinstance(index, int) or isinstance(index, bool) or index < 0:
             raise ValueError("Indices must be non-negative integers")
 
         payload += index.to_bytes(8, "big")
@@ -84,19 +81,11 @@ def _validate_layouts(
             raise TypeError("chunks_per_shard must be a tuple")
 
         if not layout.chunks_per_shard:
-            raise ValueError(
-                f"Generation {layout.generation_id} has no shards"
-            )
+            raise ValueError(f"Generation {layout.generation_id} has no shards")
 
         for count in layout.chunks_per_shard:
-            if (
-                not isinstance(count, int)
-                or isinstance(count, bool)
-                or count <= 0
-            ):
-                raise ValueError(
-                    "Every shard must contain at least one chunk"
-                )
+            if not isinstance(count, int) or isinstance(count, bool) or count <= 0:
+                raise ValueError("Every shard must contain at least one chunk")
 
 
 def select_generation_indices(
@@ -131,9 +120,7 @@ def select_generation_indices(
 
     rng = random.Random(seed)
 
-    return tuple(
-        sorted(rng.sample(range(total_generations), selected_count))
-    )
+    return tuple(sorted(rng.sample(range(total_generations), selected_count)))
 
 
 def select_shard_indices(
@@ -158,11 +145,7 @@ def select_shard_indices(
     ):
         raise ValueError("total_shards must be positive")
 
-    if (
-        not isinstance(k, int)
-        or isinstance(k, bool)
-        or not 1 <= k <= total_shards
-    ):
+    if not isinstance(k, int) or isinstance(k, bool) or not 1 <= k <= total_shards:
         raise ValueError("k must be between 1 and total_shards")
 
     seed = _derive_seed(
@@ -173,9 +156,7 @@ def select_shard_indices(
 
     rng = random.Random(seed)
 
-    return tuple(
-        sorted(rng.sample(range(total_shards), k))
-    )
+    return tuple(sorted(rng.sample(range(total_shards), k)))
 
 
 def select_chunk_index(
@@ -251,8 +232,7 @@ def create_incremental_challenge(
     )
 
     selected_shards: dict[int, list[int]] = {
-        generation_index: []
-        for generation_index in selected_generation_indices
+        generation_index: [] for generation_index in selected_generation_indices
     }
 
     # First select one shard from each selected generation.
@@ -276,8 +256,7 @@ def create_incremental_challenge(
         candidates = [
             index
             for index in selected_generation_indices
-            if len(selected_shards[index])
-            < layouts[index].total_shards
+            if len(selected_shards[index]) < layouts[index].total_shards
         ]
 
         if not candidates:
@@ -289,9 +268,7 @@ def create_incremental_challenge(
             remaining,
         )
         rng = random.Random(round_seed)
-        generation_index = candidates[
-            rng.randrange(len(candidates))
-        ]
+        generation_index = candidates[rng.randrange(len(candidates))]
 
         layout = layouts[generation_index]
         already_selected = set(selected_shards[generation_index])

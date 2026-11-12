@@ -1,4 +1,4 @@
-#benchmarks/scenarios/baseline_pipeline.py
+# benchmarks/scenarios/baseline_pipeline.py
 #!/usr/bin/env python3
 """Repeatable benchmark for the current ENGRAM Python storage pipeline.
 
@@ -8,6 +8,7 @@ Reusable statistics are delegated to benchmarks.common.statistics.
 Groth16 witness/prove/verify timings are measured separately by
 zk/benchmark_groth16.py.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -34,6 +35,7 @@ from engram.storage import StorageManager
 from benchmarks.common.timing import measure_ms
 from benchmarks.common.statistics import summarize_pipeline_rows
 from benchmarks.common.results import export_results
+
 
 def generate_challenge_shard_proofs(
     storage: StorageManager,
@@ -77,6 +79,7 @@ def generate_challenge_shard_proofs(
         proofs.append(proof)
 
     return tuple(proofs)
+
 
 def one_run(
     file_path: Path,
@@ -188,9 +191,7 @@ def one_run(
         # Generate challenge
         # ---------------------------------------------------------
 
-        chunk_counts = tuple(
-            storage.get_chunk_counts("payload")
-        )
+        chunk_counts = tuple(storage.get_chunk_counts("payload"))
 
         challenge, challenge_generation_ms = measure_ms(
             create_challenge,
@@ -272,17 +273,12 @@ def one_run(
             ),
             "available_shards": len(available),
             "chunks_per_shard": chunk_counts[0],
-            "challenge_shard_indices": ";".join(
-                map(str, challenge.shard_indices)
-            ),
-            "challenge_chunk_indices": ";".join(
-                map(str, challenge.chunk_indices)
-            ),
+            "challenge_shard_indices": ";".join(map(str, challenge.shard_indices)),
+            "challenge_chunk_indices": ";".join(map(str, challenge.chunk_indices)),
             "challenge_target_count": len(challenge_targets),
             "proof_count": len(storage_proofs),
             "verified_proof_count": verified_proof_count,
             "failed_proof_count": failed_proof_count,
-
             "key_generation_ms": key_generation_ms,
             "encryption_ms": encryption_ms,
             "erasure_encoding_ms": erasure_encoding_ms,
@@ -300,13 +296,8 @@ def one_run(
             "reconstruction_ms": reconstruction_ms,
             "decryption_ms": decryption_ms,
             "challenge_generation_ms": challenge_generation_ms,
-            "python_merkle_proof_generation_ms": (
-                python_merkle_proof_generation_ms
-            ),
-            "python_merkle_verification_ms": (
-                python_merkle_verification_ms
-            ),
-
+            "python_merkle_proof_generation_ms": (python_merkle_proof_generation_ms),
+            "python_merkle_verification_ms": (python_merkle_verification_ms),
             "reconstruction_success": reconstruction_success,
             "python_merkle_proof_success": proof_success,
             "pipeline_end_to_end_ms": end_to_end_ms,
@@ -320,9 +311,7 @@ def one_run(
 def main() -> None:
     """CLI entry point for the baseline pipeline benchmark."""
     parser = argparse.ArgumentParser(
-        description=(
-            "Benchmark the current ENGRAM Python storage pipeline baseline."
-        )
+        description=("Benchmark the current ENGRAM Python storage pipeline baseline.")
     )
     parser.add_argument("files", nargs="+", help="Input files to benchmark")
     parser.add_argument(
@@ -351,14 +340,10 @@ def main() -> None:
         parser.error("--repeat must be >= 1 and --warmup must be >= 0")
 
     if not (1 <= args.data_shards < args.total_shards <= 255):
-        parser.error(
-            "Require 1 <= data-shards < total-shards <= 255"
-        )
+        parser.error("Require 1 <= data-shards < total-shards <= 255")
 
     if not (1 <= args.challenge_size <= args.total_shards):
-        parser.error(
-            "--challenge-size must be between 1 and total-shards"
-        )
+        parser.error("--challenge-size must be between 1 and total-shards")
 
     rows: list[dict[str, Any]] = []
     files_metadata: list[dict[str, Any]] = []
@@ -383,9 +368,7 @@ def main() -> None:
             }
         )
 
-        print(
-            f"\n=== {path} ({len(payload)} bytes; sha256={digest}) ==="
-        )
+        print(f"\n=== {path} ({len(payload)} bytes; sha256={digest}) ===")
 
         for i in range(1, args.warmup + 1):
             one_run(
@@ -398,8 +381,7 @@ def main() -> None:
                 args.challenge_size,
             )
             print(
-                f"[warmup {i}/{args.warmup}] completed "
-                "(excluded from CSV/summary)"
+                f"[warmup {i}/{args.warmup}] completed " "(excluded from CSV/summary)"
             )
 
         for i in range(1, args.repeat + 1):
@@ -430,11 +412,9 @@ def main() -> None:
                 or row["proof_count"] != args.challenge_size
             ):
                 raise RuntimeError(
-                    "Correctness check failed in measurement "
-                    f"run {i} for {path}"
+                    "Correctness check failed in measurement " f"run {i} for {path}"
                 )
 
-    
     summary = {
         "config": {
             "repeat": args.repeat,
@@ -494,11 +474,7 @@ def main() -> None:
         csv_fieldnames=list(rows[0].keys()),
     )
 
-    print(
-        f"\nRaw measurements: {exported.csv_path}"
-        f"\nSummary: {exported.json_path}"
-    )
-
+    print(f"\nRaw measurements: {exported.csv_path}" f"\nSummary: {exported.json_path}")
 
 
 if __name__ == "__main__":

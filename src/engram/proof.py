@@ -1,4 +1,4 @@
-#engram/proof.py
+# engram/proof.py
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -10,10 +10,10 @@ from engram.merkle import (
     verify_hash_path,
 )
 
-
 # ---------------------------------------------------------------------
 # Data structures
 # ---------------------------------------------------------------------
+
 
 @dataclass(frozen=True)
 class ShardChallenge:
@@ -26,6 +26,7 @@ class ShardChallenge:
     Incremental:
         commitment_id = generation ID
     """
+
     commitment_id: str
     shard_index: int
     chunk_index: int
@@ -39,6 +40,7 @@ class ShardWitness:
     The Storage Node must retain the complete shard, but only the
     selected chunk and its authentication paths are used here.
     """
+
     commitment_id: str
     shard_index: int
     chunk_index: int
@@ -50,6 +52,7 @@ class ShardWitness:
 @dataclass(frozen=True)
 class ShardProof:
     """One proof corresponding to exactly one challenged shard."""
+
     target: ShardChallenge
     p: bytes
     witness: ShardWitness
@@ -58,6 +61,7 @@ class ShardProof:
 @dataclass(frozen=True)
 class ChallengeProofResult:
     """Aggregated verification result for an entire challenge."""
+
     valid: bool
     verified_count: int
     expected_count: int
@@ -67,6 +71,7 @@ class ChallengeProofResult:
 # ---------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------
+
 
 def _is_valid_field_element(value: object) -> bool:
     return (
@@ -125,6 +130,7 @@ def _validate_witness(
 # Proof generation
 # ---------------------------------------------------------------------
 
+
 def generate_shard_proof(
     target: ShardChallenge,
     p: bytes,
@@ -163,6 +169,7 @@ def generate_shard_proof(
 # ---------------------------------------------------------------------
 # Merkle path verification
 # ---------------------------------------------------------------------
+
 
 def _root_from_path(
     leaf_hash: int,
@@ -224,11 +231,7 @@ def _root_from_path(
             return None
 
         # Check duplicated final node for an odd-width tree.
-        if (
-            index % 2 == 0
-            and index == width - 1
-            and width % 2 == 1
-        ):
+        if index % 2 == 0 and index == width - 1 and width % 2 == 1:
             if sibling_hash != current:
                 return None
 
@@ -246,6 +249,7 @@ def _root_from_path(
 # ---------------------------------------------------------------------
 # Single-proof verification
 # ---------------------------------------------------------------------
+
 
 def verify_shard_proof(
     proof: ShardProof,
@@ -286,16 +290,11 @@ def verify_shard_proof(
     ):
         return False
 
-    if (
-        not isinstance(chunks_per_shard, tuple)
-        or len(chunks_per_shard) != total_shards
-    ):
+    if not isinstance(chunks_per_shard, tuple) or len(chunks_per_shard) != total_shards:
         return False
 
     if any(
-        not isinstance(count, int)
-        or isinstance(count, bool)
-        or count <= 0
+        not isinstance(count, int) or isinstance(count, bool) or count <= 0
         for count in chunks_per_shard
     ):
         return False
@@ -355,6 +354,7 @@ def verify_shard_proof(
 # ---------------------------------------------------------------------
 # Challenge-level verification
 # ---------------------------------------------------------------------
+
 
 def verify_challenge_proofs(
     challenge_targets: tuple[ShardChallenge, ...],
@@ -492,8 +492,6 @@ def verify_challenge_proofs(
         verified_count=verified_count,
         expected_count=expected_count,
         failed_targets=tuple(
-            target
-            for target in challenge_targets
-            if target in failed_targets
+            target for target in challenge_targets if target in failed_targets
         ),
     )

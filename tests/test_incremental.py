@@ -1,4 +1,4 @@
-#tests/test_incremental.py
+# tests/test_incremental.py
 import tempfile
 import unittest
 import time
@@ -10,9 +10,15 @@ from engram.incremental import IncrementalStore
 
 class IncrementalStoreTests(unittest.TestCase):
     def make_store(self, root, **kwargs):
-        return IncrementalStore(root, data_shards=2, total_shards=4,
-                                chunk_size=4, size_threshold=8,
-                                max_wait_seconds=3600, **kwargs)
+        return IncrementalStore(
+            root,
+            data_shards=2,
+            total_shards=4,
+            chunk_size=4,
+            size_threshold=8,
+            max_wait_seconds=3600,
+            **kwargs,
+        )
 
     def test_batching_and_version_retrieval(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -42,7 +48,9 @@ class IncrementalStoreTests(unittest.TestCase):
             state = store._load("doc")
             state["open"]["started_at"] = 1.0
             store._save("doc", state)
-            self.assertTrue(store.seal_expired_generations("doc", now=time.time() + 100.0))
+            self.assertTrue(
+                store.seal_expired_generations("doc", now=time.time() + 100.0)
+            )
             self.assertEqual(store.get_version("doc", 1), b"small")
 
     def test_duplicate_append_creates_distinct_monotonic_versions(self):
@@ -54,7 +62,6 @@ class IncrementalStoreTests(unittest.TestCase):
             self.assertEqual(store.get_version("doc", 1), b"same")
             self.assertEqual(store.get_version("doc", 2), b"samesame")
             self.assertTrue(store.verify_history("doc"))
-
 
     def test_retrieval_uses_version_order_not_manifest_list_order(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,13 +76,14 @@ class IncrementalStoreTests(unittest.TestCase):
             self.assertEqual(store.get_version("doc", 2), b"AAAABBBB")
             self.assertTrue(store.verify_history("doc"))
 
-
     def test_recovery_resumes_staged_seal(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = self.make_store(tmp)
             store.append("doc", b"tiny")
             state = store._load("doc")
-            with patch.object(store, "_finish_seal", side_effect=RuntimeError("simulated crash")):
+            with patch.object(
+                store, "_finish_seal", side_effect=RuntimeError("simulated crash")
+            ):
                 with self.assertRaises(RuntimeError):
                     store._seal("doc", state)
 

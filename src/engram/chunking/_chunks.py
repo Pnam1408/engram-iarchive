@@ -1,4 +1,5 @@
 """Helpers for turning native boundaries into immutable chunk records."""
+
 from __future__ import annotations
 
 import hashlib
@@ -7,7 +8,9 @@ from collections.abc import Iterable
 from .types import Chunk
 
 
-def build_chunks(data: bytes, boundaries: Iterable[tuple[int, int]]) -> tuple[Chunk, ...]:
+def build_chunks(
+    data: bytes, boundaries: Iterable[tuple[int, int]]
+) -> tuple[Chunk, ...]:
     """Validate boundaries and materialize chunks with SHA-256 digests."""
     if not isinstance(data, bytes):
         raise TypeError("data must be bytes")
@@ -18,7 +21,9 @@ def build_chunks(data: bytes, boundaries: Iterable[tuple[int, int]]) -> tuple[Ch
         if not isinstance(offset, int) or not isinstance(size, int):
             raise TypeError("chunk boundaries must contain integer offset/size pairs")
         if size <= 0 or offset != expected_offset:
-            raise ValueError("chunk boundaries must be positive, contiguous, and ordered")
+            raise ValueError(
+                "chunk boundaries must be positive, contiguous, and ordered"
+            )
         end = offset + size
         if end > len(data):
             raise ValueError("chunk boundary exceeds input length")

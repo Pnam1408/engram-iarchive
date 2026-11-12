@@ -1,4 +1,5 @@
 """Shared chunk metadata used by the chunking implementations."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

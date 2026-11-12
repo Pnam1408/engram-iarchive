@@ -1,10 +1,11 @@
-#scripts/run_baseline_matrix.py
+# scripts/run_baseline_matrix.py
 #!/usr/bin/env python3
 """Run the baseline matrix: 1 KiB/64 KiB/1 MiB × RS(4,8)/RS(6,8).
 
 From repository root:
   PYTHONPATH=src python scripts/run_baseline_matrix.py --repeat 30 --warmup 2
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WORKLOAD_DIR = ROOT / "data" / "benchmark_workloads"
 
 
-#def deterministic_payload(size: int) -> bytes:
+# def deterministic_payload(size: int) -> bytes:
 #    out = bytearray()
 #    counter = 0
 #    while len(out) < size:
@@ -45,23 +46,35 @@ def main() -> None:
         payload = deterministic_payload(size)
         path.write_bytes(payload)
         workloads.append(path)
-        print(f"Prepared {path.relative_to(ROOT)} ({size} bytes; sha256={hashlib.sha256(payload).hexdigest()})")
+        print(
+            f"Prepared {path.relative_to(ROOT)} ({size} bytes; sha256={hashlib.sha256(payload).hexdigest()})"
+        )
 
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH", "")
-    env["PYTHONPATH"] = str(ROOT / "src") + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
+    env["PYTHONPATH"] = str(ROOT / "src") + (
+        os.pathsep + existing_pythonpath if existing_pythonpath else ""
+    )
 
     for k in (4, 6):
         output_dir = args.output_dir / f"rs{k}_8"
         command = [
-            sys.executable, "-m", "engram.experiment",
+            sys.executable,
+            "-m",
+            "engram.experiment",
             *[str(p) for p in workloads],
-            "--repeat", str(args.repeat),
-            "--warmup", str(args.warmup),
-            "--data-shards", str(k),
-            "--total-shards", "8",
-            "--challenge-size", "3",
-            "--output-dir", str(output_dir),
+            "--repeat",
+            str(args.repeat),
+            "--warmup",
+            str(args.warmup),
+            "--data-shards",
+            str(k),
+            "--total-shards",
+            "8",
+            "--challenge-size",
+            "3",
+            "--output-dir",
+            str(output_dir),
         ]
         print("\n=== Running RS(%d,8) ===" % k, flush=True)
         subprocess.run(command, cwd=ROOT, env=env, check=True)

@@ -1,4 +1,3 @@
-
 from engram.encryption import generate_key, encrypt, decrypt, EncryptedPayload
 from engram.erasure_coding import encode, decode
 from engram.merkle import build_merkle_tree
@@ -36,9 +35,9 @@ def run_demo():
     # Sắp xếp theo shard index để thứ tự lá luôn nhất quán.
     ordered_indices = sorted(available)
     ordered_shards = [available[i] for i in ordered_indices]
-    
+
     tree = build_merkle_tree(ordered_shards)
-    
+
     print("Merkle root:", tree.root_hex)
 
     # 6. Khôi phục ciphertext

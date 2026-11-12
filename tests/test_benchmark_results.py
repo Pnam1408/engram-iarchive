@@ -1,4 +1,3 @@
-
 import csv
 import json
 
@@ -13,9 +12,7 @@ from benchmarks.common.results import (
 
 
 def test_create_result_stem_contains_prefix():
-    assert create_result_stem("pipeline_baseline").startswith(
-        "pipeline_baseline_"
-    )
+    assert create_result_stem("pipeline_baseline").startswith("pipeline_baseline_")
 
 
 def test_write_csv_preserves_explicit_column_order(tmp_path):

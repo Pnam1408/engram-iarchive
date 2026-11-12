@@ -1,5 +1,6 @@
-#benchmarks/common/results.py
+# benchmarks/common/results.py
 """Shared result-export utilities for ENGRAM benchmark scenarios."""
+
 from __future__ import annotations
 
 import csv

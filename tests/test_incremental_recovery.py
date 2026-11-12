@@ -3,6 +3,7 @@
 Run from the project root:
     PYTHONPATH=src python -m unittest discover -s tests -v
 """
+
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -38,14 +39,18 @@ class IncrementalBufferRecoveryTests(unittest.TestCase):
                 "write_shards",
                 side_effect=RuntimeError("simulated shard publication failure"),
             ):
-                with self.assertRaisesRegex(RuntimeError, "simulated shard publication failure"):
+                with self.assertRaisesRegex(
+                    RuntimeError, "simulated shard publication failure"
+                ):
                     store.seal("doc")
 
             state = store._load("doc")
             self.assertIsNotNone(state["sealing"])
             self.assertTrue(buffer_path.exists(), "buffer must survive failed seal")
             self.assertEqual(buffer_path.read_bytes(), b"tiny")
-            self.assertTrue(staging_path.exists(), "staged ciphertext must survive failed seal")
+            self.assertTrue(
+                staging_path.exists(), "staged ciphertext must survive failed seal"
+            )
 
             # Retry with normal storage operations, simulating a process restart.
             reopened = self.make_store(tmp)
@@ -80,7 +85,9 @@ class IncrementalBufferRecoveryTests(unittest.TestCase):
                 "_cleanup_committed_temporary_files",
                 side_effect=crash_only_after_commit,
             ):
-                with self.assertRaisesRegex(RuntimeError, "before temporary-file cleanup"):
+                with self.assertRaisesRegex(
+                    RuntimeError, "before temporary-file cleanup"
+                ):
                     store.seal("doc")
 
             state_after_crash = store._load("doc")

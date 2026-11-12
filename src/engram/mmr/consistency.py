@@ -1,4 +1,5 @@
 """Custom append-only consistency proofs for ENGRAM's MMR profile."""
+
 from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
@@ -36,13 +37,19 @@ def generate_consistency_proof(accumulator: Any, old_size: int) -> ConsistencyPr
         "old_size": old_size,
         "new_size": new_size,
         "old_peaks": [
-            {"start_leaf": start, "height": height,
-             "hash": accumulator.get_node(start, height).hex()}
+            {
+                "start_leaf": start,
+                "height": height,
+                "hash": accumulator.get_node(start, height).hex(),
+            }
             for start, height in old_layout
         ],
         "appended_subtrees": [
-            {"start_leaf": start, "height": height,
-             "hash": accumulator.get_node(start, height).hex()}
+            {
+                "start_leaf": start,
+                "height": height,
+                "hash": accumulator.get_node(start, height).hex(),
+            }
             for start, height in suffix_layout
         ],
     }
@@ -73,7 +80,9 @@ def verify_consistency_proof(
             peaks.append((start, height, digest))
             old_hashes.append((height, digest))
         old_digest = hash_root(old_size, old_hashes)
-        expected_old = bytes.fromhex(old_root) if isinstance(old_root, str) else old_root
+        expected_old = (
+            bytes.fromhex(old_root) if isinstance(old_root, str) else old_root
+        )
         if len(expected_old) != HASH_SIZE or old_digest != expected_old:
             return False
 
@@ -101,8 +110,12 @@ def verify_consistency_proof(
         expected_new_layout = peak_layout(new_size)
         if [(start, height) for start, height, _ in peaks] != expected_new_layout:
             return False
-        new_digest = hash_root(new_size, [(height, digest) for _, height, digest in peaks])
-        expected_new = bytes.fromhex(new_root) if isinstance(new_root, str) else new_root
+        new_digest = hash_root(
+            new_size, [(height, digest) for _, height, digest in peaks]
+        )
+        expected_new = (
+            bytes.fromhex(new_root) if isinstance(new_root, str) else new_root
+        )
         return len(expected_new) == HASH_SIZE and new_digest == expected_new
     except (KeyError, TypeError, ValueError, OverflowError):
         return False

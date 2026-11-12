@@ -1,10 +1,10 @@
 """Typed metadata structures persisted by the incremental object store."""
+
 from __future__ import annotations
 
 from typing import Literal, TypedDict
 
 from engram.mmr.types import MMRState
-
 
 VersionStatus = Literal["PENDING", "Available"]
 

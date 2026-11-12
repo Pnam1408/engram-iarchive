@@ -1,5 +1,6 @@
-#engram/incremental/store.py
+# engram/incremental/store.py
 """Public incremental store API and append orchestration."""
+
 from __future__ import annotations
 
 import hashlib
@@ -12,12 +13,14 @@ from .generations import GenerationMixin
 from .versions import VersionMixin
 from .types import VersionEntry
 
+
 class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
     """Append-only object store with per-object generation batching.
 
     A version is assigned on Append and stays PENDING until its generation is
     sealed, published, and successfully reconstructed from stored shards.
     """
+
     def __init__(
         self,
         root_dir: str | Path,
@@ -39,7 +42,9 @@ class IncrementalStore(BufferMixin, GenerationMixin, VersionMixin):
         self.state_dir = self.root_dir / "objects"
         self.buffer_dir = self.root_dir / "buffers"
         self.staging_dir = self.root_dir / "staging"
-        self.storage = StorageManager(self.root_dir / "shard_storage", node_count=total_shards)
+        self.storage = StorageManager(
+            self.root_dir / "shard_storage", node_count=total_shards
+        )
         self.data_shards = data_shards
         self.total_shards = total_shards
         self.chunk_size = chunk_size

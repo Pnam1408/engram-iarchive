@@ -1,10 +1,11 @@
-#engram/incremental/buffer.py
+# engram/incremental/buffer.py
 """Short-lived generation buffer and seal-staging payload files.
 
 Buffer bytes are kept outside the long-lived JSON object metadata. The metadata
 records the committed buffer length so recovery can discard bytes written just
 before a crash but not yet reflected in the metadata.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -54,7 +55,9 @@ class BufferMixin(StateMixin, BufferAccess):
         try:
             return path.read_bytes()
         except OSError as exc:
-            raise ValueError(f"Staged ciphertext is missing for object {object_id!r}") from exc
+            raise ValueError(
+                f"Staged ciphertext is missing for object {object_id!r}"
+            ) from exc
 
     @staticmethod
     def _remove_if_exists(path: Path) -> None:
@@ -65,7 +68,9 @@ class BufferMixin(StateMixin, BufferAccess):
             # state says the buffer/staging payload is no longer needed.
             pass
 
-    def _cleanup_committed_temporary_files(self, object_id: str, state: ObjectState) -> None:
+    def _cleanup_committed_temporary_files(
+        self, object_id: str, state: ObjectState
+    ) -> None:
         """Remove temporary files only when metadata says no work is pending."""
         if not state.get("sealing") and not state["open"].get("entries"):
             self._remove_if_exists(self._buffer_path(object_id))

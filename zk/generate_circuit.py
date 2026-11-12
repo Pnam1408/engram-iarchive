@@ -1,4 +1,4 @@
-#zk/generate_circuit.py
+# zk/generate_circuit.py
 
 from __future__ import annotations
 
@@ -10,16 +10,11 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 ZK_DIR = Path(__file__).resolve().parent
 
 DEFAULT_INPUT = ZK_DIR / "input.json"
-DEFAULT_TEMPLATE = (
-    ZK_DIR / "circuits" / "engram_shard_post_template.circom"
-)
-DEFAULT_OUTPUT = (
-    ZK_DIR / "circuits" / "engram_post_generated.circom"
-)
+DEFAULT_TEMPLATE = ZK_DIR / "circuits" / "engram_shard_post_template.circom"
+DEFAULT_OUTPUT = ZK_DIR / "circuits" / "engram_post_generated.circom"
 
 # BN254 scalar field modulus, matching merkle.py.
 FIELD_MODULUS = (
@@ -41,9 +36,7 @@ def _parse_nonnegative_int(
     elif isinstance(value, str) and re.fullmatch(r"[0-9]+", value):
         result = int(value)
     else:
-        raise ValueError(
-            f"{field_name} must be a non-negative integer"
-        )
+        raise ValueError(f"{field_name} must be a non-negative integer")
 
     if result < 0:
         raise ValueError(f"{field_name} must be non-negative")
@@ -57,10 +50,7 @@ def get_circuit_params(
 ) -> dict[str, int]:
     """Calculate compile-time parameters for EngramShardPoSt."""
 
-    if (
-        not isinstance(shard_bytes_len, int)
-        or isinstance(shard_bytes_len, bool)
-    ):
+    if not isinstance(shard_bytes_len, int) or isinstance(shard_bytes_len, bool):
         raise TypeError("shard_bytes_len must be an integer")
 
     if shard_bytes_len <= 31:
@@ -73,9 +63,7 @@ def get_circuit_params(
         raise TypeError("n_shards must be an integer")
 
     if n_shards < 2 or n_shards & (n_shards - 1):
-        raise ValueError(
-            "n_shards must be a power of two and at least 2."
-        )
+        raise ValueError("n_shards must be a power of two and at least 2.")
 
     n_chunks = math.ceil(shard_bytes_len / 31)
 
@@ -112,9 +100,7 @@ def _validate_field_element(
     result = _parse_nonnegative_int(value, field_name)
 
     if result >= FIELD_MODULUS:
-        raise ValueError(
-            f"{field_name} must be smaller than the BN254 field modulus"
-        )
+        raise ValueError(f"{field_name} must be smaller than the BN254 field modulus")
 
     return result
 
@@ -138,9 +124,7 @@ def _validate_input(
 
     for key in required_fields:
         if key not in data:
-            raise ValueError(
-                f"input.json is missing required field: {key}"
-            )
+            raise ValueError(f"input.json is missing required field: {key}")
 
     params = get_circuit_params(shard_bytes_len, n_shards)
 
@@ -162,14 +146,10 @@ def _validate_input(
     )
 
     if shard_index >= n_shards:
-        raise ValueError(
-            f"shardIndex must be smaller than {n_shards}"
-        )
+        raise ValueError(f"shardIndex must be smaller than {n_shards}")
 
     if chunk_index >= n_chunks:
-        raise ValueError(
-            f"chunkIndex must be smaller than {n_chunks}"
-        )
+        raise ValueError(f"chunkIndex must be smaller than {n_chunks}")
 
     # Validate private chunk witness.
     chunk_value = _parse_nonnegative_int(
@@ -184,11 +164,7 @@ def _validate_input(
 
     last_chunk_bytes = shard_bytes_len % 31 or 31
 
-    expected_chunk_length = (
-        last_chunk_bytes
-        if chunk_index == n_chunks - 1
-        else 31
-    )
+    expected_chunk_length = last_chunk_bytes if chunk_index == n_chunks - 1 else 31
 
     if chunk_length != expected_chunk_length:
         raise ValueError(
@@ -200,9 +176,7 @@ def _validate_input(
         raise ValueError("chunkValue must fit in 248 bits")
 
     if chunk_value >= 2 ** (chunk_length * 8):
-        raise ValueError(
-            "chunkValue contains more bytes than chunkLength allows"
-        )
+        raise ValueError("chunkValue contains more bytes than chunkLength allows")
 
     # Validate Merkle paths.
     chunk_path = data["chunkPath"]
@@ -216,14 +190,12 @@ def _validate_input(
 
     if len(chunk_path) != chunk_depth:
         raise ValueError(
-            f"chunkPath depth must be {chunk_depth}, "
-            f"got {len(chunk_path)}"
+            f"chunkPath depth must be {chunk_depth}, " f"got {len(chunk_path)}"
         )
 
     if len(shard_path) != shard_depth:
         raise ValueError(
-            f"shardPath depth must be {shard_depth}, "
-            f"got {len(shard_path)}"
+            f"shardPath depth must be {shard_depth}, " f"got {len(shard_path)}"
         )
 
     for index, sibling in enumerate(chunk_path):
@@ -254,9 +226,7 @@ def load_input_metadata(
 
     data = _load_json_object(input_path)
 
-    metadata_path = input_path.with_name(
-        f"{input_path.stem}_metadata.json"
-    )
+    metadata_path = input_path.with_name(f"{input_path.stem}_metadata.json")
 
     metadata: dict[str, Any] = {}
 
@@ -286,15 +256,9 @@ def load_input_metadata(
         or isinstance(shard_bytes_len, bool)
         or shard_bytes_len <= 0
     ):
-        raise ValueError(
-            "'shardBytesLen' must be a positive integer."
-        )
+        raise ValueError("'shardBytesLen' must be a positive integer.")
 
-    if (
-        not isinstance(n_shards, int)
-        or isinstance(n_shards, bool)
-        or n_shards <= 0
-    ):
+    if not isinstance(n_shards, int) or isinstance(n_shards, bool) or n_shards <= 0:
         raise ValueError("'nShards' must be a positive integer.")
 
     _validate_input(
@@ -315,9 +279,7 @@ def generate_circuit(
     """Generate a single-target Circom main component."""
 
     if not template_path.is_file():
-        raise FileNotFoundError(
-            f"Circuit template not found: {template_path}"
-        )
+        raise FileNotFoundError(f"Circuit template not found: {template_path}")
 
     params = get_circuit_params(
         shard_bytes_len=shard_bytes_len,
@@ -330,7 +292,7 @@ def generate_circuit(
         output_path.resolve().parent,
     ).replace(os.sep, "/")
 
-    output = f'''pragma circom 2.0.0;
+    output = f"""pragma circom 2.0.0;
 
 include "{include_path}";
 
@@ -347,7 +309,7 @@ component main {{
     {params["chunk_depth"]},
     {params["shard_depth"]}
 );
-'''
+"""
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(output, encoding="utf-8")
@@ -396,8 +358,7 @@ def main() -> None:
         type=int,
         default=None,
         help=(
-            "Override shard count; otherwise read nShards "
-            "from metadata (default 8)."
+            "Override shard count; otherwise read nShards " "from metadata (default 8)."
         ),
     )
 
@@ -408,9 +369,7 @@ def main() -> None:
     output_path = args.output.resolve()
 
     if not input_path.is_file():
-        raise FileNotFoundError(
-            f"Input JSON not found: {input_path}"
-        )
+        raise FileNotFoundError(f"Input JSON not found: {input_path}")
 
     shard_bytes_len, n_shards = load_input_metadata(
         input_path=input_path,

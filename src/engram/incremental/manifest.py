@@ -1,4 +1,5 @@
 """Canonical immutable manifests for version-history MMR leaves."""
+
 from __future__ import annotations
 
 import hashlib
@@ -37,7 +38,11 @@ def build_version_manifest(
     generation_id = entry.get("generation_id")
     if generation_id not in (None, generation["generation_id"]):
         raise ValueError(f"Version {version} generation_id mismatch")
-    if not int(generation["start_version"]) <= version <= int(generation["end_version"]):
+    if (
+        not int(generation["start_version"])
+        <= version
+        <= int(generation["end_version"])
+    ):
         raise ValueError(f"Version {version} is outside its generation range")
     return {
         "schema_version": 1,

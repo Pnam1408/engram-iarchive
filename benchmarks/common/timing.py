@@ -1,4 +1,4 @@
-#benchmarks/common/timing.py
+# benchmarks/common/timing.py
 """Shared timing utilities for ENGRAM benchmarks."""
 
 from __future__ import annotations

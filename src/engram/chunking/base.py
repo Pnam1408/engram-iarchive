@@ -1,4 +1,5 @@
 """Structural interface shared by chunking strategies."""
+
 from __future__ import annotations
 
 from typing import Protocol
