@@ -9,10 +9,17 @@ from engram.mmr.types import MMRState
 VersionStatus = Literal["PENDING", "Available"]
 
 
+OperationType = Literal["append", "insert", "delete"]
+
+
 class VersionEntry(TypedDict):
     version: int
+    operation: OperationType
+    offset: int | None
+    delete_length: int
     delta_size_bytes: int
     delta_sha256: str
+    storage_size_bytes: int
     generation_id: str | None
     status: VersionStatus
 

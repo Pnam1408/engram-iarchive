@@ -26,8 +26,8 @@ from .manifest import build_version_manifest
 
 
 class StateMixin(StateAccess, BufferAccess, GenerationAccess):
-    # Version 2 moves open-buffer bytes and staged ciphertext out of JSON metadata.
-    STATE_VERSION = 3
+
+    STATE_VERSION = 4
 
     @staticmethod
     def _object_key(object_id: str) -> str:
@@ -85,9 +85,35 @@ class StateMixin(StateAccess, BufferAccess, GenerationAccess):
         if state.get("object_id") != object_id:
             raise ValueError("Object state object_id mismatch")
 
-        if state.get("schema_version") != self.STATE_VERSION:
+        schema_version = state.get("schema_version")
+        if schema_version == 3:
+            # Migrate append-only metadata without changing existing MMR leaves.
+            for record in state.get("versions", []):
+                record.setdefault("operation", "append")
+                record.setdefault("offset", None)
+                record.setdefault("delete_length", 0)
+                record.setdefault("storage_size_bytes", int(record["delta_size_bytes"]))
+            collections = [
+                state.get("generations", []),
+                [state.get("sealing")],
+                [{"entries": state.get("open", {}).get("entries", [])}],
+            ]
+            for collection in collections:
+                for item in collection:
+                    if not item:
+                        continue
+                    for record in item.get("entries", []):
+                        record.setdefault("operation", "append")
+                        record.setdefault("offset", None)
+                        record.setdefault("delete_length", 0)
+                        record.setdefault(
+                            "storage_size_bytes", int(record["delta_size_bytes"])
+                        )
+            state["schema_version"] = self.STATE_VERSION
+            self._save(object_id, cast(ObjectState, state))
+        elif schema_version != self.STATE_VERSION:
             raise ValueError(
-                f"Unsupported schema version: {state.get('schema_version')}; "
+                f"Unsupported schema version: {schema_version}; "
                 f"expected {self.STATE_VERSION}"
             )
 

@@ -44,8 +44,31 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
             raise ValueError("Generation end_version mismatch")
 
         for entry in entries:
-            if int(entry["delta_size_bytes"]) <= 0:
-                raise ValueError("Delta size must be positive")
+            operation = entry.get("operation", "append")
+            payload_size = int(entry["delta_size_bytes"])
+            storage_size = int(entry.get("storage_size_bytes", payload_size))
+            if operation not in {"append", "insert", "delete"}:
+                raise ValueError(f"Unsupported operation: {operation!r}")
+            if payload_size < 0 or storage_size <= 0:
+                raise ValueError("Invalid operation payload/storage size")
+            if operation in {"append", "insert"} and payload_size <= 0:
+                raise ValueError("Append/insert payload must not be empty")
+            if operation == "delete" and (
+                payload_size != 0 or int(entry.get("delete_length", 0)) <= 0
+            ):
+                raise ValueError(
+                    "Delete operation must have an empty payload and positive length"
+                )
+            if operation == "append" and entry.get("offset") is not None:
+                raise ValueError("Append operation must not specify an offset")
+            if operation in {"insert", "delete"}:
+                offset = entry.get("offset")
+                if (
+                    not isinstance(offset, int)
+                    or isinstance(offset, bool)
+                    or offset < 0
+                ):
+                    raise ValueError(f"Invalid {operation} offset")
 
         return entries
 
@@ -134,6 +157,30 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
 
                 if record["delta_sha256"] != entry["delta_sha256"]:
                     raise ValueError(f"Version {version} delta hash mismatch")
+                for field in (
+                    "operation",
+                    "offset",
+                    "delete_length",
+                    "storage_size_bytes",
+                ):
+                    if record.get(
+                        field,
+                        {
+                            "operation": "append",
+                            "offset": None,
+                            "delete_length": 0,
+                            "storage_size_bytes": record["delta_size_bytes"],
+                        }[field],
+                    ) != entry.get(
+                        field,
+                        {
+                            "operation": "append",
+                            "offset": None,
+                            "delete_length": 0,
+                            "storage_size_bytes": entry["delta_size_bytes"],
+                        }[field],
+                    ):
+                        raise ValueError(f"Version {version} {field} mismatch")
 
                 version_to_generation[version] = generation_id
 
@@ -185,14 +232,44 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
         generations = self._ordered_generations(state)
         return copy.deepcopy(generations)
 
+    @staticmethod
+    def _apply_operation(
+        current: bytearray, entry: VersionEntry, payload: bytes
+    ) -> None:
+        operation = entry.get("operation", "append")
+        if operation == "append":
+            current.extend(payload)
+            return
+        offset = entry.get("offset")
+        if (
+            not isinstance(offset, int)
+            or isinstance(offset, bool)
+            or not 0 <= offset <= len(current)
+        ):
+            raise ValueError(
+                f"Invalid {operation} offset at version {entry['version']}"
+            )
+        if operation == "insert":
+            current[offset:offset] = payload
+            return
+        if operation == "delete":
+            raw_length = entry.get("delete_length", 0)
+            if not isinstance(raw_length, int) or isinstance(raw_length, bool):
+                raise ValueError(f"Invalid delete length at version {entry['version']}")
+            length = raw_length
+            if length <= 0 or offset + length > len(current):
+                raise ValueError(f"Invalid delete range at version {entry['version']}")
+            del current[offset : offset + length]
+            return
+        raise ValueError(f"Unsupported operation: {operation!r}")
+
     def get_version(self, object_id: str, version: int) -> bytes:
-        """Retrieve a committed object version by replaying ordered generations."""
+        """Reconstruct a committed version by replaying operations from genesis."""
         if not isinstance(version, int) or isinstance(version, bool) or version < 1:
             raise ValueError("version must be a positive integer")
 
         self.recover(object_id)
         state = self._load(object_id)
-
         version_record = next(
             (
                 record
@@ -201,10 +278,8 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
             ),
             None,
         )
-
         if version_record is None:
             raise KeyError(f"Version {version} does not exist for object {object_id!r}")
-
         if version_record["status"] != "Available":
             raise RuntimeError(
                 f"Version {version} is {version_record['status']}, not Available"
@@ -212,66 +287,64 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
 
         generations = self._ordered_generations(state)
         version_to_generation, _ = self._validate_version_generation_mapping(
-            state,
-            generations,
+            state, generations
         )
-
         if version not in version_to_generation:
             raise RuntimeError(f"Version {version} has no committed generation")
 
-        object_bytes = bytearray()
+        current = bytearray()
         expected_version = 1
-
         for generation in generations:
-            start = int(generation["start_version"])
-
-            if start > version:
+            if int(generation["start_version"]) > version:
                 break
-
             entries = self._generation_entries(generation)
             plain = self._read_generation_plaintext(state, generation)
-
-            if len(plain) != sum(int(entry["delta_size_bytes"]) for entry in entries):
+            expected_size = sum(
+                int(entry.get("storage_size_bytes", entry["delta_size_bytes"]))
+                for entry in entries
+            )
+            if len(plain) != expected_size:
                 raise ValueError(
-                    f"Generation size does not match entries: "
-                    f"{generation['generation_id']}"
+                    f"Generation size does not match entries: {generation['generation_id']}"
                 )
-
-            offset = 0
-
+            cursor = 0
             for entry in entries:
                 entry_version = int(entry["version"])
-
                 if entry_version != expected_version:
                     raise ValueError(
-                        f"Unexpected version {entry_version}; "
-                        f"expected {expected_version}"
+                        f"Unexpected version {entry_version}; expected {expected_version}"
                     )
-
-                size = int(entry["delta_size_bytes"])
-                delta = plain[offset : offset + size]
-                offset += size
-
-                if len(delta) != size:
-                    raise ValueError(f"Delta size mismatch at version {entry_version}")
-
-                if hashlib.sha256(delta).hexdigest() != entry["delta_sha256"]:
+                stored_size = int(
+                    entry.get("storage_size_bytes", entry["delta_size_bytes"])
+                )
+                stored = plain[cursor : cursor + stored_size]
+                cursor += stored_size
+                if len(stored) != stored_size:
                     raise ValueError(
-                        f"Delta integrity check failed at version {entry_version}"
+                        f"Operation record size mismatch at version {entry_version}"
                     )
-
-                object_bytes.extend(delta)
+                operation = entry.get("operation", "append")
+                payload_size = int(entry["delta_size_bytes"])
+                if operation == "delete":
+                    if stored != b"\x00":
+                        raise ValueError(
+                            f"Delete marker mismatch at version {entry_version}"
+                        )
+                    payload = b""
+                else:
+                    payload = stored
+                    if len(payload) != payload_size:
+                        raise ValueError(
+                            f"Operation payload size mismatch at version {entry_version}"
+                        )
+                if hashlib.sha256(payload).hexdigest() != entry["delta_sha256"]:
+                    raise ValueError(
+                        f"Operation payload integrity check failed at version {entry_version}"
+                    )
+                self._apply_operation(current, entry, payload)
                 expected_version += 1
-
                 if entry_version == version:
-                    if (
-                        version_record.get("generation_id")
-                        != generation["generation_id"]
-                    ):
-                        raise ValueError(f"Version {version} generation_id mismatch")
-
-                    return bytes(object_bytes)
-
+                    return bytes(current)
         raise RuntimeError(f"Version {version} could not be reconstructed")
 
     def get_mmr_root(self, object_id: str) -> str:
@@ -362,50 +435,97 @@ class VersionMixin(StateAccess, BufferAccess, GenerationAccess, VersionAccess):
             if open_versions != pending_versions:
                 return False
 
+            reconstructed = bytearray()
             for generation in generations:
                 entries = self._generation_entries(generation)
                 plain = self._read_generation_plaintext(state, generation)
-
-                expected_size = sum(int(entry["delta_size_bytes"]) for entry in entries)
-
+                expected_size = sum(
+                    int(entry.get("storage_size_bytes", entry["delta_size_bytes"]))
+                    for entry in entries
+                )
                 if len(plain) != expected_size:
                     return False
-
                 offset = 0
-
                 for entry in entries:
-                    size = int(entry["delta_size_bytes"])
-                    delta = plain[offset : offset + size]
-                    offset += size
+                    storage_size = int(
+                        entry.get("storage_size_bytes", entry["delta_size_bytes"])
+                    )
+                    stored = plain[offset : offset + storage_size]
+                    offset += storage_size
+                    if len(stored) != storage_size:
+                        return False
+                    operation = entry.get("operation", "append")
+                    payload = b"" if operation == "delete" else stored
+                    if operation == "delete" and stored != b"\x00":
+                        return False
+                    if len(payload) != int(entry["delta_size_bytes"]):
+                        return False
+                    if hashlib.sha256(payload).hexdigest() != entry["delta_sha256"]:
+                        return False
+                    self._apply_operation(reconstructed, entry, payload)
 
-                    if len(delta) != size:
+            # Pending operation metadata must agree between the version index
+            # and the open-generation entry list.
+            records_by_version = {
+                int(record["version"]): record for record in state["versions"]
+            }
+            for entry in open_entries:
+                version = int(entry["version"])
+                record = records_by_version.get(version)
+                if record is None:
+                    return False
+                for field in (
+                    "operation",
+                    "offset",
+                    "delete_length",
+                    "delta_size_bytes",
+                    "delta_sha256",
+                    "storage_size_bytes",
+                ):
+                    default = {
+                        "operation": "append",
+                        "offset": None,
+                        "delete_length": 0,
+                    }.get(field)
+                    if field == "storage_size_bytes":
+                        record_value = record.get(field, record["delta_size_bytes"])
+                        entry_value = entry.get(field, entry["delta_size_bytes"])
+                    elif field in {"operation", "offset", "delete_length"}:
+                        record_value = record.get(field, default)
+                        entry_value = entry.get(field, default)
+                    else:
+                        record_value = record[field]
+                        entry_value = entry[field]
+                    if record_value != entry_value:
                         return False
 
-                    if hashlib.sha256(delta).hexdigest() != entry["delta_sha256"]:
-                        return False
-
-            # Check that the open buffer agrees with its metadata and entries.
+            # Check and replay the open buffer using the same operation semantics.
             if open_entries:
                 open_plaintext = self._read_buffer(object_id, state)
-
-                if len(open_plaintext) != sum(
-                    int(entry["delta_size_bytes"]) for entry in open_entries
-                ):
+                expected_open_size = sum(
+                    int(entry.get("storage_size_bytes", entry["delta_size_bytes"]))
+                    for entry in open_entries
+                )
+                if len(open_plaintext) != expected_open_size:
                     return False
-
                 offset = 0
-
                 for entry in open_entries:
-                    size = int(entry["delta_size_bytes"])
-                    delta = open_plaintext[offset : offset + size]
-                    offset += size
-
-                    if len(delta) != size:
+                    storage_size = int(
+                        entry.get("storage_size_bytes", entry["delta_size_bytes"])
+                    )
+                    stored = open_plaintext[offset : offset + storage_size]
+                    offset += storage_size
+                    if len(stored) != storage_size:
                         return False
-
-                    if hashlib.sha256(delta).hexdigest() != entry["delta_sha256"]:
+                    operation = entry.get("operation", "append")
+                    payload = b"" if operation == "delete" else stored
+                    if operation == "delete" and stored != b"\x00":
                         return False
-
+                    if len(payload) != int(entry["delta_size_bytes"]):
+                        return False
+                    if hashlib.sha256(payload).hexdigest() != entry["delta_sha256"]:
+                        return False
+                    self._apply_operation(reconstructed, entry, payload)
             elif int(state["open"].get("buffer_size", 0)) != 0:
                 return False
 

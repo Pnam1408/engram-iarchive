@@ -192,13 +192,24 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
             record = version_records.get(version)
             if record is None:
                 raise ValueError(f"Version {version} is missing during publication")
-            if (
-                int(record["delta_size_bytes"]) != int(staged_entry["delta_size_bytes"])
-                or record["delta_sha256"] != staged_entry["delta_sha256"]
-            ):
-                raise ValueError(
-                    f"Version {version} metadata differs from staged entry"
+            fields = (
+                "operation",
+                "offset",
+                "delete_length",
+                "delta_size_bytes",
+                "delta_sha256",
+                "storage_size_bytes",
+            )
+            defaults = {"operation": "append", "offset": None, "delete_length": 0}
+            for field in fields:
+                record_value = record.get(
+                    field, defaults.get(field, record.get("delta_size_bytes"))
                 )
+                staged_value = staged_entry.get(
+                    field, defaults.get(field, staged_entry.get("delta_size_bytes"))
+                )
+                if record_value != staged_value:
+                    raise ValueError(f"Version {version} {field} metadata mismatch")
             manifest = build_version_manifest(object_id, staged_entry, generation)
 
             if version == accumulator.last_version + 1:
@@ -371,8 +382,71 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
         if versions[-1] != int(staged["end_version"]):
             raise ValueError("Generation end_version mismatch")
 
-        if sum(int(entry["delta_size_bytes"]) for entry in entries) != len(plaintext):
-            raise ValueError("Generation entries size does not match plaintext size")
+        expected_plaintext_size = sum(
+            int(entry.get("storage_size_bytes", entry["delta_size_bytes"]))
+            for entry in entries
+        )
+        if expected_plaintext_size != len(plaintext):
+            raise ValueError(
+                "Generation entries storage size does not match plaintext size"
+            )
+
+        cursor = 0
+        for entry in entries:
+            storage_size = int(
+                entry.get("storage_size_bytes", entry["delta_size_bytes"])
+            )
+            stored = plaintext[cursor : cursor + storage_size]
+            cursor += storage_size
+            operation = entry.get("operation", "append")
+            if operation not in {"append", "insert", "delete"}:
+                raise ValueError(
+                    f"Unsupported operation in staged generation: {operation!r}"
+                )
+            payload_size = int(entry["delta_size_bytes"])
+            if payload_size < 0:
+                raise ValueError("Operation payload size must not be negative")
+            if operation in {"append", "insert"} and payload_size <= 0:
+                raise ValueError("Append/insert payload must not be empty")
+            if operation == "delete":
+                delete_length = entry.get("delete_length", 0)
+                if (
+                    payload_size != 0
+                    or not isinstance(delete_length, int)
+                    or isinstance(delete_length, bool)
+                    or delete_length <= 0
+                ):
+                    raise ValueError("Invalid delete operation metadata")
+                delete_offset = entry.get("offset")
+                if (
+                    not isinstance(delete_offset, int)
+                    or isinstance(delete_offset, bool)
+                    or delete_offset < 0
+                ):
+                    raise ValueError(
+                        "Delete operation requires a non-negative integer offset"
+                    )
+                if stored != b"\x00":
+                    raise ValueError("Delete operation framing marker mismatch")
+                payload = b""
+            else:
+                payload = stored
+                if operation == "insert":
+                    offset_value = entry.get("offset")
+                    if (
+                        not isinstance(offset_value, int)
+                        or isinstance(offset_value, bool)
+                        or offset_value < 0
+                    ):
+                        raise ValueError(
+                            "Insert operation requires a non-negative integer offset"
+                        )
+                elif entry.get("offset") is not None:
+                    raise ValueError("Append operation must not specify an offset")
+            if len(payload) != payload_size:
+                raise ValueError("Operation payload size mismatch")
+            if hashlib.sha256(payload).hexdigest() != entry["delta_sha256"]:
+                raise ValueError("Operation payload hash mismatch")
 
         # Every staged entry must match an existing version record.
         records: dict[int, VersionEntry] = {}
@@ -394,11 +468,26 @@ class GenerationMixin(StateAccess, BufferAccess, GenerationAccess):
             if record is None:
                 raise ValueError(f"Version {version} is missing from object state")
 
-            if int(record["delta_size_bytes"]) != int(entry["delta_size_bytes"]):
-                raise ValueError(f"Version {version} delta size mismatch")
-
-            if record["delta_sha256"] != entry["delta_sha256"]:
-                raise ValueError(f"Version {version} delta hash mismatch")
+            defaults = {"operation": "append", "offset": None, "delete_length": 0}
+            for field in (
+                "operation",
+                "offset",
+                "delete_length",
+                "delta_size_bytes",
+                "delta_sha256",
+                "storage_size_bytes",
+            ):
+                if field in defaults:
+                    record_value = record.get(field, defaults[field])
+                    staged_value = entry.get(field, defaults[field])
+                elif field == "storage_size_bytes":
+                    record_value = record.get(field, record["delta_size_bytes"])
+                    staged_value = entry.get(field, entry["delta_size_bytes"])
+                else:
+                    record_value = record[field]
+                    staged_value = entry[field]
+                if record_value != staged_value:
+                    raise ValueError(f"Version {version} {field} mismatch")
 
             existing_generation_id = record.get("generation_id")
 

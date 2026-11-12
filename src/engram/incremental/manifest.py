@@ -44,14 +44,25 @@ def build_version_manifest(
         <= int(generation["end_version"])
     ):
         raise ValueError(f"Version {version} is outside its generation range")
-    return {
+    operation = entry.get("operation", "append")
+    manifest = {
         "schema_version": 1,
         "object_id": object_id,
         "version": version,
         "parent_version": version - 1 if version > 1 else None,
-        "operation": "append",
+        "operation": operation,
         "delta_size_bytes": int(entry["delta_size_bytes"]),
         "delta_sha256": entry["delta_sha256"],
         "generation_id": generation["generation_id"],
         "generation_commitment": generation_commitment(generation),
     }
+    # Preserve the original append-leaf encoding for existing histories.
+    if operation != "append":
+        manifest.update(
+            {
+                "offset": int(entry["offset"]),
+                "delete_length": int(entry.get("delete_length", 0)),
+                "storage_size_bytes": int(entry["storage_size_bytes"]),
+            }
+        )
+    return manifest
