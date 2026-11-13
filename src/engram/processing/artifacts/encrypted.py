@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from ._validation import (
     require_bytes,
     require_non_empty_string,
-    require_non_negative_int,
     require_positive_int,
     require_sha256,
 )
@@ -23,6 +22,7 @@ class EncryptedChunk:
     ciphertext: bytes
     plaintext_size: int
     plaintext_sha256: str
+    aad_version: int = 1
 
     def __post_init__(self) -> None:
         require_non_empty_string("object_id", self.object_id)
@@ -33,9 +33,10 @@ class EncryptedChunk:
         require_bytes("ciphertext", self.ciphertext)
         require_positive_int("plaintext_size", self.plaintext_size)
         require_sha256("plaintext_sha256", self.plaintext_sha256)
+        require_positive_int("aad_version", self.aad_version)
+        from engram.processing.exceptions import InvalidArtifactError
+
         if not self.nonce:
-            from engram.processing.exceptions import InvalidArtifactError
             raise InvalidArtifactError("nonce must not be empty")
         if not self.ciphertext:
-            from engram.processing.exceptions import InvalidArtifactError
             raise InvalidArtifactError("ciphertext must not be empty")
