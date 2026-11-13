@@ -40,8 +40,8 @@ class KeyCodec:
 
     @staticmethod
     def encode_uint64(value: int) -> bytes:
-        if not isinstance(value, int):
-            raise TypeError("value must be int")
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError("value must be an integer (bool is not accepted)")
 
         if not 0 <= value <= KeyCodec.UINT64_MAX:
             raise ValueError("value must be an unsigned 64-bit integer")

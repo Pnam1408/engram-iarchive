@@ -2,20 +2,20 @@ import pytest
 
 from engram.metadata.column_families import ColumnFamily
 from engram.metadata.key_codec import KeyCodec
+from tests.metadata.conftest import make_chunks_available
 
 
 def prepare_object_with_chunks(repos):
     repos.objects.create("object-001")
 
-    repos.chunks.create(
-        "chunk-001",
+    repos.chunks.create("chunk-001", "object-001")
+    repos.chunks.create("chunk-002", "object-001")
+
+    make_chunks_available(
+        repos,
         "object-001",
-        {"status": "AVAILABLE"},
-    )
-    repos.chunks.create(
-        "chunk-002",
-        "object-001",
-        {"status": "AVAILABLE"},
+        ["chunk-001", "chunk-002"],
+        generation_id="generation-version-test",
     )
 
 
@@ -69,7 +69,6 @@ def test_reject_chunk_from_another_object(metadata_env):
     repos.chunks.create(
         "chunk-002",
         "object-002",
-        {"status": "AVAILABLE"},
     )
 
     with pytest.raises(ValueError):

@@ -12,6 +12,7 @@ def serialize(value: Any) -> bytes:
             ensure_ascii=False,
             sort_keys=True,
             separators=(",", ":"),
+            allow_nan=False,
         )
         return text.encode("utf-8")
     except (TypeError, ValueError) as exc:

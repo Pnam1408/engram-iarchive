@@ -12,7 +12,10 @@ class BaseRepository:
         raw = self.db.get(column_family, key)
         if raw is None:
             return None
-        return deserialize(raw)
+        value = deserialize(raw)
+        if not isinstance(value, dict):
+            raise ValueError("Repository record must be a JSON object")
+        return value
 
     def _put(self, column_family, key: bytes, value: dict) -> None:
         self.db.put(column_family, key, serialize(value))
@@ -22,7 +25,7 @@ class BaseRepository:
 
     @staticmethod
     def _require_non_empty_string(value: Any, field: str) -> str:
-        if not isinstance(value, str) or not value:
+        if not isinstance(value, str) or not value.strip():
             raise ValueError(f"{field} must be a non-empty string")
         return value
 
@@ -31,3 +34,16 @@ class BaseRepository:
         if isinstance(value, bool) or not isinstance(value, int) or value < 0:
             raise ValueError(f"{field} must be a non-negative integer")
         return value
+
+    @staticmethod
+    def _require_metadata(metadata: dict | None, protected: set[str]) -> dict:
+        if metadata is None:
+            return {}
+        if not isinstance(metadata, dict):
+            raise TypeError("metadata must be a dict")
+        conflicts = protected.intersection(metadata)
+        if conflicts:
+            raise ValueError(
+                f"metadata cannot set protected fields: {sorted(conflicts)}"
+            )
+        return dict(metadata)

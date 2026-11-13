@@ -8,7 +8,6 @@ def test_generation_lifecycle(metadata_env):
     repos.chunks.create(
         "chunk-001",
         "object-001",
-        {"status": "PENDING"},
     )
 
     generation = repos.generations.create(
@@ -54,7 +53,13 @@ def test_generation_lifecycle(metadata_env):
 def test_invalid_generation_transition(metadata_env):
     _, repos = metadata_env
 
-    repos.generations.create("generation-001")
+    repos.generations.create(
+        "generation-001",
+        {
+            "data_shards": 2,
+            "total_shards": 3,
+        },
+    )
 
     with pytest.raises(ValueError):
         repos.generations.update_status(
