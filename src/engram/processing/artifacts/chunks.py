@@ -5,7 +5,12 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass
 
-from ._validation import require_non_negative_int, require_positive_int, require_bytes, require_sha256
+from ._validation import (
+    require_non_negative_int,
+    require_positive_int,
+    require_bytes,
+    require_sha256,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,9 +35,11 @@ class Chunk:
         require_sha256("sha256", self.sha256)
         if len(self.data) != self.size:
             from engram.processing.exceptions import InvalidArtifactError
+
             raise InvalidArtifactError("size must equal len(data)")
         if hashlib.sha256(self.data).hexdigest() != self.sha256:
             from engram.processing.exceptions import InvalidArtifactError
+
             raise InvalidArtifactError("sha256 does not match data")
 
     @property
