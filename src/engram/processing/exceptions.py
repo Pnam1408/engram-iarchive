@@ -43,3 +43,27 @@ class InsufficientShardsError(ErasureCodingError):
 
 class ShardIntegrityError(ErasureCodingError):
     """A shard failed its integrity check."""
+
+
+class StorageError(ProcessingError):
+    """A storage operation failed."""
+
+
+class StorageNotFoundError(StorageError):
+    """The requested storage object does not exist."""
+
+
+class StorageConflictError(StorageError):
+    """A storage key already exists with different content."""
+
+
+class StorageIntegrityError(StorageError):
+    """A stored object failed its integrity verification."""
+
+
+class StorageIOError(StorageError):
+    """An underlying storage I/O operation failed."""
+
+
+class InvalidStorageKeyError(StorageError, ValueError):
+    """A storage key is invalid or unsafe."""
