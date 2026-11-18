@@ -37,7 +37,6 @@ from engram.processing.storage import (
     StorageProcessor,
 )
 
-
 OBJECT_ID = "pipeline-integration-object"
 KEY_ID = "pipeline-integration-key"
 GENERATION_ID = "pipeline-integration-generation"
@@ -98,8 +97,7 @@ def _restore_from_storage(
     not currently persist GenerationPayload.records.
     """
     references = {
-        reference.shard_index: reference
-        for reference in stored_shard_set.shards
+        reference.shard_index: reference for reference in stored_shard_set.shards
     }
 
     restored_shards = []
@@ -202,20 +200,25 @@ def test_full_pipeline_round_trip_through_filesystem(pipeline_result):
     assert recovered_payload.records == result["payload"].records
 
     # P2: parse all serialized encrypted records.
-    recovered_encrypted_chunks = BinaryPayloadParser().parse_all(
-        recovered_payload
-    )
-    assert recovered_encrypted_chunks == result["encrypted_chunks"]
+    recovered_records = BinaryPayloadParser().parse_all(recovered_payload)
+    original_by_identity = {
+        (item.object_id, item.chunk_id): item for item in result["encrypted_chunks"]
+    }
+    assert len(recovered_records) == len(result["encrypted_chunks"])
 
-    # P1: authenticate/decrypt each chunk and reconstruct the original object.
+    # P1: resolve the expected digest from logical chunk metadata, then decrypt.
     decryptor = AESGCMDecryptor()
     recovered_plaintext_chunks = tuple(
-        decryptor.decrypt(item, key=result["key"])
-        for item in recovered_encrypted_chunks
+        decryptor.decrypt(
+            record,
+            key=result["key"],
+            expected_plaintext_sha256=original_by_identity[
+                (record.object_id, record.chunk_id)
+            ].plaintext_sha256,
+        )
+        for record in recovered_records
     )
-    assert recovered_plaintext_chunks == tuple(
-        chunk.data for chunk in result["chunks"]
-    )
+    assert recovered_plaintext_chunks == tuple(chunk.data for chunk in result["chunks"])
     assert b"".join(recovered_plaintext_chunks) == result["original"]
 
 
@@ -238,11 +241,21 @@ def test_pipeline_recovers_from_exactly_k_persisted_shards(pipeline_result):
 
     assert recovered_bytes == result["payload"].data
 
-    encrypted_chunks = BinaryPayloadParser().parse_all(recovered_payload)
+    records = BinaryPayloadParser().parse_all(recovered_payload)
+    digest_by_identity = {
+        (item.object_id, item.chunk_id): item.plaintext_sha256
+        for item in result["encrypted_chunks"]
+    }
     decryptor = AESGCMDecryptor()
     recovered = b"".join(
-        decryptor.decrypt(item, key=result["key"])
-        for item in encrypted_chunks
+        decryptor.decrypt(
+            item,
+            key=result["key"],
+            expected_plaintext_sha256=digest_by_identity[
+                (item.object_id, item.chunk_id)
+            ],
+        )
+        for item in records
     )
     assert recovered == result["original"]
 
@@ -266,10 +279,20 @@ def test_pipeline_data_survives_new_filesystem_backend_instance(pipeline_result)
 
     assert recovered_bytes == result["payload"].data
 
-    encrypted_chunks = BinaryPayloadParser().parse_all(recovered_payload)
+    records = BinaryPayloadParser().parse_all(recovered_payload)
+    digest_by_identity = {
+        (item.object_id, item.chunk_id): item.plaintext_sha256
+        for item in result["encrypted_chunks"]
+    }
     decryptor = AESGCMDecryptor()
     recovered = b"".join(
-        decryptor.decrypt(item, key=result["key"])
-        for item in encrypted_chunks
+        decryptor.decrypt(
+            item,
+            key=result["key"],
+            expected_plaintext_sha256=digest_by_identity[
+                (item.object_id, item.chunk_id)
+            ],
+        )
+        for item in records
     )
     assert recovered == result["original"]

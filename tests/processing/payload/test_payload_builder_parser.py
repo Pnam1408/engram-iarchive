@@ -4,12 +4,13 @@ import hashlib
 
 import pytest
 
-from engram.processing.artifacts import Chunk, EncryptedChunk, GenerationPayload
-from engram.processing.encryption import AESGCMDecryptor, AESGCMEncryptor, generate_key
-from engram.processing.exceptions import (
-    PayloadError,
-    UnsupportedPayloadVersionError,
+from engram.processing.artifacts import (
+    Chunk,
+    EncryptedChunkRecord,
+    GenerationPayload,
 )
+from engram.processing.encryption import AESGCMDecryptor, AESGCMEncryptor, generate_key
+from engram.processing.exceptions import PayloadError, UnsupportedPayloadVersionError
 from engram.processing.payload import (
     BinaryPayloadBuilder,
     BinaryPayloadParser,
@@ -45,16 +46,22 @@ def encrypted_chunks():
     return key, inputs, result
 
 
-def test_build_and_parse_all_round_trip(encrypted_chunks):
+def test_build_parse_and_decrypt_round_trip(encrypted_chunks):
     key, inputs, chunks = encrypted_chunks
     payload = BinaryPayloadBuilder().build(chunks)
-    parser = BinaryPayloadParser()
+    records = BinaryPayloadParser().parse_all(payload)
 
-    recovered = parser.parse_all(payload)
-    assert recovered == chunks
-
+    assert all(isinstance(item, EncryptedChunkRecord) for item in records)
+    assert len(records) == len(chunks)
     decryptor = AESGCMDecryptor()
-    plaintexts = tuple(decryptor.decrypt(item, key=key) for item in recovered)
+    plaintexts = tuple(
+        decryptor.decrypt(
+            record,
+            key=key,
+            expected_plaintext_sha256=original.plaintext_sha256,
+        )
+        for record, original in zip(records, chunks, strict=True)
+    )
     assert plaintexts == tuple(item[2] for item in inputs)
 
 
@@ -62,7 +69,7 @@ def test_records_are_contiguous_and_cover_payload(encrypted_chunks):
     _, _, chunks = encrypted_chunks
     payload = BinaryPayloadBuilder().build(chunks)
 
-    assert payload.format_version == PAYLOAD_FORMAT_VERSION
+    assert payload.format_version == PAYLOAD_FORMAT_VERSION == 2
     assert payload.records[0].offset == 0
     for left, right in zip(payload.records, payload.records[1:]):
         assert left.offset + left.length == right.offset
@@ -72,9 +79,19 @@ def test_records_are_contiguous_and_cover_payload(encrypted_chunks):
 def test_parse_one_record_independently(encrypted_chunks):
     _, _, chunks = encrypted_chunks
     payload = BinaryPayloadBuilder().build(chunks)
-    parser = BinaryPayloadParser()
+    assert (
+        BinaryPayloadParser().parse_record(payload, payload.records[1]).chunk_id
+        == "chunk-002"
+    )
 
-    assert parser.parse_record(payload, payload.records[1]) == chunks[1]
+
+def test_payload_record_does_not_serialize_plaintext_sha256(encrypted_chunks):
+    _, _, chunks = encrypted_chunks
+    payload = BinaryPayloadBuilder().build((chunks[0],))
+    encoded_record = payload.data
+    assert bytes.fromhex(chunks[0].plaintext_sha256) not in encoded_record
+    parsed = BinaryPayloadParser().parse_all(payload)[0]
+    assert not hasattr(parsed, "plaintext_sha256")
 
 
 def test_empty_generation_payload():
@@ -100,7 +117,6 @@ def test_parser_rejects_record_from_another_payload(encrypted_chunks):
     _, _, chunks = encrypted_chunks
     first = BinaryPayloadBuilder().build((chunks[0],))
     second = BinaryPayloadBuilder().build((chunks[1],))
-
     with pytest.raises(PayloadError, match="does not belong"):
         BinaryPayloadParser().parse_record(first, second.records[0])
 
@@ -129,7 +145,6 @@ def test_parser_detects_record_identity_mismatch(encrypted_chunks):
         offset=record.offset,
         length=record.length,
     )
-    # A record not present in the payload metadata is rejected before parsing.
     with pytest.raises(PayloadError):
         BinaryPayloadParser().parse_record(payload, forged)
 
@@ -141,18 +156,11 @@ def test_parser_rejects_truncated_record():
         decode_record(b"ENGR\\x00", expected_format_version=PAYLOAD_FORMAT_VERSION)
 
 
-def test_parse_record_preserves_all_encryption_metadata(encrypted_chunks):
-    _, _, chunks = encrypted_chunks
-    payload = BinaryPayloadBuilder().build(chunks)
-    parsed = BinaryPayloadParser().parse_all(payload)
+def test_parser_rejects_extra_trailing_bytes(encrypted_chunks):
+    from engram.processing.payload.format import decode_record
 
-    for original, decoded in zip(chunks, parsed):
-        assert decoded.object_id == original.object_id
-        assert decoded.chunk_id == original.chunk_id
-        assert decoded.algorithm == original.algorithm
-        assert decoded.key_id == original.key_id
-        assert decoded.nonce == original.nonce
-        assert decoded.ciphertext == original.ciphertext
-        assert decoded.plaintext_size == original.plaintext_size
-        assert decoded.plaintext_sha256 == original.plaintext_sha256
-        assert decoded.aad_version == original.aad_version
+    _, _, chunks = encrypted_chunks
+    payload = BinaryPayloadBuilder().build((chunks[0],))
+    encoded = payload.data + b"x"
+    with pytest.raises(PayloadError):
+        decode_record(encoded, expected_format_version=PAYLOAD_FORMAT_VERSION)

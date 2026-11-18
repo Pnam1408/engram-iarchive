@@ -7,7 +7,7 @@ from engram.processing.exceptions import InvalidConfigurationError
 
 @dataclass(frozen=True, slots=True)
 class AESGCMConfig:
-    aad_version: int = 1
+    aad_version: int = 2
 
     def __post_init__(self) -> None:
         if (
@@ -16,7 +16,7 @@ class AESGCMConfig:
             or self.aad_version <= 0
         ):
             raise InvalidConfigurationError("aad_version must be a positive integer")
-        if self.aad_version != 1:
+        if self.aad_version != 2:
             raise InvalidConfigurationError(
                 f"Unsupported AAD version: {self.aad_version}"
             )

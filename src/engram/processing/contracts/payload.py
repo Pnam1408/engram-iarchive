@@ -2,7 +2,12 @@
 
 from typing import Protocol
 
-from engram.processing.artifacts import EncryptedChunk, GenerationPayload, PayloadRecord
+from engram.processing.artifacts import (
+    EncryptedChunk,
+    EncryptedChunkRecord,
+    GenerationPayload,
+    PayloadRecord,
+)
 
 
 class PayloadBuilder(Protocol):
@@ -12,4 +17,4 @@ class PayloadBuilder(Protocol):
 class PayloadParser(Protocol):
     def parse_record(
         self, payload: GenerationPayload, record: PayloadRecord
-    ) -> EncryptedChunk: ...
+    ) -> EncryptedChunkRecord: ...

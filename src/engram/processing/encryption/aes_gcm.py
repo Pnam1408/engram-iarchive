@@ -8,7 +8,7 @@ import os
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-from engram.processing.artifacts import Chunk, EncryptedChunk
+from engram.processing.artifacts import Chunk, EncryptedChunk, EncryptedChunkRecord
 from engram.processing.exceptions import (
     DecryptionError,
     EncryptionError,
@@ -56,6 +56,9 @@ class AESGCMEncryptor:
         aad = build_aad(
             object_id=object_id,
             chunk_id=chunk_id,
+            algorithm=ALGORITHM,
+            key_id=key_id,
+            plaintext_size=chunk.size,
             version=self._config.aad_version,
         )
         nonce = os.urandom(NONCE_SIZE)
@@ -77,38 +80,59 @@ class AESGCMEncryptor:
 
 
 class AESGCMDecryptor:
-    def decrypt(self, encrypted_chunk: EncryptedChunk, *, key: bytes) -> bytes:
+    def decrypt(
+        self,
+        encrypted_record: EncryptedChunkRecord,
+        *,
+        key: bytes,
+        expected_plaintext_sha256: str,
+    ) -> bytes:
         _validate_key(key)
-        if not isinstance(encrypted_chunk, EncryptedChunk):
-            raise DecryptionError("encrypted_chunk must be an EncryptedChunk artifact")
-        if encrypted_chunk.algorithm != ALGORITHM:
+        if not isinstance(encrypted_record, EncryptedChunkRecord):
             raise DecryptionError(
-                f"Unsupported encryption algorithm: {encrypted_chunk.algorithm}"
+                "encrypted_record must be an EncryptedChunkRecord artifact"
             )
-        if len(encrypted_chunk.nonce) != NONCE_SIZE:
+        if encrypted_record.algorithm != ALGORITHM:
+            raise DecryptionError(
+                f"Unsupported encryption algorithm: {encrypted_record.algorithm}"
+            )
+        if len(encrypted_record.nonce) != NONCE_SIZE:
             raise DecryptionError("AES-256-GCM nonce must be exactly 12 bytes")
-        if len(encrypted_chunk.ciphertext) < TAG_SIZE:
+        if len(encrypted_record.ciphertext) < TAG_SIZE:
             raise DecryptionError(
                 "Ciphertext is shorter than the GCM authentication tag"
+            )
+        if (
+            not isinstance(expected_plaintext_sha256, str)
+            or len(expected_plaintext_sha256) != 64
+            or any(char not in "0123456789abcdef" for char in expected_plaintext_sha256)
+        ):
+            raise DecryptionError(
+                "Expected plaintext SHA-256 must be a lowercase digest"
             )
 
         try:
             aad = build_aad(
-                object_id=encrypted_chunk.object_id,
-                chunk_id=encrypted_chunk.chunk_id,
-                version=encrypted_chunk.aad_version,
+                object_id=encrypted_record.object_id,
+                chunk_id=encrypted_record.chunk_id,
+                algorithm=encrypted_record.algorithm,
+                key_id=encrypted_record.key_id,
+                plaintext_size=encrypted_record.plaintext_size,
+                version=encrypted_record.aad_version,
             )
             plaintext = AESGCM(key).decrypt(
-                encrypted_chunk.nonce, encrypted_chunk.ciphertext, aad
+                encrypted_record.nonce, encrypted_record.ciphertext, aad
             )
         except InvalidTag as exc:
             raise DecryptionError("AES-GCM authentication failed") from exc
         except (TypeError, ValueError, InvalidConfigurationError) as exc:
-            raise DecryptionError("Encrypted chunk metadata or AAD is invalid") from exc
+            raise DecryptionError(
+                "Encrypted record metadata or AAD is invalid"
+            ) from exc
 
-        if len(plaintext) != encrypted_chunk.plaintext_size:
+        if len(plaintext) != encrypted_record.plaintext_size:
             raise DecryptionError("Decrypted plaintext size does not match metadata")
         digest = hashlib.sha256(plaintext).hexdigest()
-        if digest != encrypted_chunk.plaintext_sha256:
+        if digest != expected_plaintext_sha256:
             raise DecryptionError("Decrypted plaintext SHA-256 does not match metadata")
         return plaintext

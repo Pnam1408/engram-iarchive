@@ -11,7 +11,7 @@ from .format import PAYLOAD_FORMAT_VERSION, encode_record
 
 
 class BinaryPayloadBuilder:
-    """Serialize encrypted chunks as contiguous, self-describing records."""
+    """Serialize encrypted chunks as contiguous records without plaintext digests."""
 
     def build(self, chunks: tuple[EncryptedChunk, ...]) -> GenerationPayload:
         if not isinstance(chunks, tuple):

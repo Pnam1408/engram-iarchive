@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from engram.processing.artifacts import Chunk, EncryptedChunk
+from engram.processing.artifacts import Chunk, EncryptedChunk, EncryptedChunkRecord
 from engram.processing.chunking import (
     FastCDCChunker,
     FastCDCConfig,
@@ -24,7 +24,6 @@ from engram.processing.encryption import (
     generate_key,
 )
 from engram.processing.exceptions import DecryptionError
-
 
 OBJECT_ID = "integration-object-001"
 KEY_ID = "integration-key-001"
@@ -63,8 +62,26 @@ def _decrypt_and_reconstruct(
     # The current Chunking contract assigns indexes in input order. Sorting
     # explicitly documents that reconstruction follows logical chunk order,
     # not encryption completion or collection order.
-    ordered = sorted(encrypted_chunks, key=lambda item: int(item.chunk_id.rsplit(":", 1)[1]))
-    return b"".join(decryptor.decrypt(item, key=key) for item in ordered)
+    ordered = sorted(
+        encrypted_chunks, key=lambda item: int(item.chunk_id.rsplit(":", 1)[1])
+    )
+    return b"".join(
+        decryptor.decrypt(
+            EncryptedChunkRecord(
+                object_id=item.object_id,
+                chunk_id=item.chunk_id,
+                algorithm=item.algorithm,
+                key_id=item.key_id,
+                nonce=item.nonce,
+                ciphertext=item.ciphertext,
+                plaintext_size=item.plaintext_size,
+                aad_version=item.aad_version,
+            ),
+            key=key,
+            expected_plaintext_sha256=item.plaintext_sha256,
+        )
+        for item in ordered
+    )
 
 
 def _assert_chunk_layout(chunks: tuple[Chunk, ...], original: bytes) -> None:
@@ -158,7 +175,20 @@ def test_each_chunk_can_be_decrypted_independently():
     decryptor = AESGCMDecryptor()
 
     for chunk, encrypted_chunk in zip(chunks, encrypted, strict=True):
-        assert decryptor.decrypt(encrypted_chunk, key=key) == chunk.data
+        record = EncryptedChunkRecord(
+            object_id=encrypted_chunk.object_id,
+            chunk_id=encrypted_chunk.chunk_id,
+            algorithm=encrypted_chunk.algorithm,
+            key_id=encrypted_chunk.key_id,
+            nonce=encrypted_chunk.nonce,
+            ciphertext=encrypted_chunk.ciphertext,
+            plaintext_size=encrypted_chunk.plaintext_size,
+            aad_version=encrypted_chunk.aad_version,
+        )
+        assert (
+            decryptor.decrypt(record, key=key, expected_plaintext_sha256=chunk.sha256)
+            == chunk.data
+        )
 
 
 def test_chunk_cannot_be_moved_to_another_object_or_chunk_identity():
@@ -173,12 +203,30 @@ def test_chunk_cannot_be_moved_to_another_object_or_chunk_identity():
         key_id=KEY_ID,
     )
     decryptor = AESGCMDecryptor()
+    record = EncryptedChunkRecord(
+        object_id=encrypted.object_id,
+        chunk_id=encrypted.chunk_id,
+        algorithm=encrypted.algorithm,
+        key_id=encrypted.key_id,
+        nonce=encrypted.nonce,
+        ciphertext=encrypted.ciphertext,
+        plaintext_size=encrypted.plaintext_size,
+        aad_version=encrypted.aad_version,
+    )
 
     with pytest.raises(DecryptionError):
-        decryptor.decrypt(replace(encrypted, object_id="another-object"), key=key)
+        decryptor.decrypt(
+            replace(record, object_id="another-object"),
+            key=key,
+            expected_plaintext_sha256=chunk.sha256,
+        )
 
     with pytest.raises(DecryptionError):
-        decryptor.decrypt(replace(encrypted, chunk_id="another-chunk"), key=key)
+        decryptor.decrypt(
+            replace(record, chunk_id="another-chunk"),
+            key=key,
+            expected_plaintext_sha256=chunk.sha256,
+        )
 
 
 def test_empty_input_produces_no_chunks_and_no_encrypted_records():

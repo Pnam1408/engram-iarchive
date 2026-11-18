@@ -22,7 +22,7 @@ class EncryptedChunk:
     ciphertext: bytes
     plaintext_size: int
     plaintext_sha256: str
-    aad_version: int = 1
+    aad_version: int = 2
 
     def __post_init__(self) -> None:
         require_non_empty_string("object_id", self.object_id)

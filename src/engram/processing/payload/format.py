@@ -1,17 +1,17 @@
 """Versioned binary record format for generation payloads.
 
-V1 record:
+V2 record:
     magic[4] | format_version[u16] | header_length[u32] |
     object_id_length[u32] | object_id[bytes] |
     chunk_id_length[u32] | chunk_id[bytes] |
     algorithm_length[u16] | algorithm[bytes] |
     key_id_length[u16] | key_id[bytes] |
-    aad_version[u16] | plaintext_size[u64] | plaintext_sha256[32] |
+    aad_version[u16] | plaintext_size[u64] |
     nonce_length[u16] | nonce[bytes] |
     ciphertext_length[u64] | ciphertext[bytes]
 
-All integers are unsigned big-endian. ``header_length`` includes bytes from
-magic through the final header field, but excludes ciphertext.
+All integers are unsigned big-endian. ``header_length`` includes all bytes
+from magic through ciphertext_length, but excludes ciphertext itself.
 """
 
 from __future__ import annotations
@@ -21,12 +21,11 @@ import struct
 from engram.processing.exceptions import PayloadError, UnsupportedPayloadVersionError
 
 MAGIC = b"ENGR"
-PAYLOAD_FORMAT_VERSION = 1
+PAYLOAD_FORMAT_VERSION = 2
 _U16 = struct.Struct(">H")
 _U32 = struct.Struct(">I")
 _U64 = struct.Struct(">Q")
 _FIXED_PREFIX = struct.Struct(">4sHI")
-_SHA256_SIZE = 32
 
 
 def _pack_length(value: int, width: struct.Struct, field: str) -> bytes:
@@ -37,7 +36,7 @@ def _pack_length(value: int, width: struct.Struct, field: str) -> bytes:
 
 
 def encode_record(chunk) -> bytes:
-    """Serialize one EncryptedChunk into a self-describing binary record."""
+    """Serialize one EncryptedChunk; plaintext digest is not serialized."""
     values = (
         ("object_id", chunk.object_id.encode("utf-8"), _U32),
         ("chunk_id", chunk.chunk_id.encode("utf-8"), _U32),
@@ -63,7 +62,6 @@ def encode_record(chunk) -> bytes:
         bytes(variable)
         + aad_version
         + plaintext_size
-        + bytes.fromhex(chunk.plaintext_sha256)
         + nonce_length
         + chunk.nonce
         + ciphertext_length
@@ -74,17 +72,15 @@ def encode_record(chunk) -> bytes:
 
 
 def decode_record(record_bytes: bytes, *, expected_format_version: int):
-    """Parse one record and return an EncryptedChunk.
-
-    Parsing is intentionally strict: the supplied byte range must contain
-    exactly one complete record, with no trailing or truncated bytes.
-    """
-    from engram.processing.artifacts import EncryptedChunk
+    """Parse exactly one complete V2 record as EncryptedChunkRecord."""
+    from engram.processing.artifacts import EncryptedChunkRecord
 
     if expected_format_version != PAYLOAD_FORMAT_VERSION:
         raise UnsupportedPayloadVersionError(
             f"Unsupported payload format version: {expected_format_version}"
         )
+    if not isinstance(record_bytes, (bytes, bytearray, memoryview)):
+        raise PayloadError("record_bytes must be bytes-like")
     view = memoryview(record_bytes)
     if len(view) < _FIXED_PREFIX.size:
         raise PayloadError("Record is shorter than the fixed prefix")
@@ -131,7 +127,6 @@ def decode_record(record_bytes: bytes, *, expected_format_version: int):
     key_id = read_text(_U16, "key_id")
     aad_version = read(_U16, "aad_version")
     plaintext_size = read(_U64, "plaintext_size")
-    digest = read_bytes(_SHA256_SIZE, "plaintext_sha256").hex()
     nonce_length = read(_U16, "nonce")
     nonce = read_bytes(nonce_length, "nonce")
     ciphertext_length = read(_U64, "ciphertext")
@@ -142,7 +137,7 @@ def decode_record(record_bytes: bytes, *, expected_format_version: int):
 
     ciphertext = bytes(view[header_length:])
     try:
-        return EncryptedChunk(
+        return EncryptedChunkRecord(
             object_id=object_id,
             chunk_id=chunk_id,
             algorithm=algorithm,
@@ -150,10 +145,9 @@ def decode_record(record_bytes: bytes, *, expected_format_version: int):
             nonce=nonce,
             ciphertext=ciphertext,
             plaintext_size=plaintext_size,
-            plaintext_sha256=digest,
             aad_version=aad_version,
         )
     except (TypeError, ValueError) as exc:
         raise PayloadError(
-            "Decoded record contains invalid EncryptedChunk metadata"
+            "Decoded record contains invalid EncryptedChunkRecord metadata"
         ) from exc

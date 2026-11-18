@@ -2,7 +2,7 @@
 
 from typing import Protocol
 
-from engram.processing.artifacts import Chunk, EncryptedChunk
+from engram.processing.artifacts import Chunk, EncryptedChunk, EncryptedChunkRecord
 
 
 class Encryptor(Protocol):
@@ -18,4 +18,10 @@ class Encryptor(Protocol):
 
 
 class Decryptor(Protocol):
-    def decrypt(self, encrypted_chunk: EncryptedChunk, *, key: bytes) -> bytes: ...
+    def decrypt(
+        self,
+        encrypted_record: EncryptedChunkRecord,
+        *,
+        key: bytes,
+        expected_plaintext_sha256: str,
+    ) -> bytes: ...

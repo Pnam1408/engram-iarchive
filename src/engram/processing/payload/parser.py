@@ -2,18 +2,22 @@
 
 from __future__ import annotations
 
-from engram.processing.artifacts import EncryptedChunk, GenerationPayload, PayloadRecord
+from engram.processing.artifacts import (
+    EncryptedChunkRecord,
+    GenerationPayload,
+    PayloadRecord,
+)
 from engram.processing.exceptions import PayloadError, UnsupportedPayloadVersionError
 
 from .format import PAYLOAD_FORMAT_VERSION, decode_record
 
 
 class BinaryPayloadParser:
-    """Recover complete EncryptedChunk artifacts without consulting RocksDB."""
+    """Recover transport records; logical hashes are resolved by metadata separately."""
 
     def parse_record(
         self, payload: GenerationPayload, record: PayloadRecord
-    ) -> EncryptedChunk:
+    ) -> EncryptedChunkRecord:
         if not isinstance(payload, GenerationPayload):
             raise PayloadError("payload must be a GenerationPayload artifact")
         if not isinstance(record, PayloadRecord):
@@ -34,7 +38,7 @@ class BinaryPayloadParser:
             raise PayloadError("Record identity does not match PayloadRecord metadata")
         return chunk
 
-    def parse_all(self, payload: GenerationPayload) -> tuple[EncryptedChunk, ...]:
+    def parse_all(self, payload: GenerationPayload) -> tuple[EncryptedChunkRecord, ...]:
         if not isinstance(payload, GenerationPayload):
             raise PayloadError("payload must be a GenerationPayload artifact")
         return tuple(self.parse_record(payload, record) for record in payload.records)

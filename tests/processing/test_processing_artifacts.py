@@ -9,6 +9,7 @@ from engram.processing.artifacts import (
     EncodedShard,
     EncodedShardSet,
     EncryptedChunk,
+    EncryptedChunkRecord,
     GenerationPayload,
     PayloadRecord,
 )
@@ -45,7 +46,35 @@ def test_encrypted_chunk_does_not_contain_secret_key_and_validates_fields() -> N
     assert not hasattr(artifact, "key")
 
     with pytest.raises(InvalidArtifactError):
-        EncryptedChunk("", "chunk-1", "AES-256-GCM", "key-1", b"n", b"c", 3, digest(b"abc"))
+        EncryptedChunk(
+            "", "chunk-1", "AES-256-GCM", "key-1", b"n", b"c", 3, digest(b"abc")
+        )
+
+
+def test_encrypted_chunk_record_contains_no_plaintext_digest_or_secret_key() -> None:
+    record = EncryptedChunkRecord(
+        object_id="object-1",
+        chunk_id="chunk-1",
+        algorithm="AES-256-GCM",
+        key_id="key-1",
+        nonce=b"n" * 12,
+        ciphertext=b"ciphertext-and-tag",
+        plaintext_size=3,
+    )
+    assert record.aad_version == 2
+    assert not hasattr(record, "plaintext_sha256")
+    assert not hasattr(record, "key")
+
+    with pytest.raises(InvalidArtifactError):
+        EncryptedChunkRecord(
+            "",
+            "chunk-1",
+            "AES-256-GCM",
+            "key-1",
+            b"n" * 12,
+            b"ciphertext",
+            3,
+        )
 
 
 def test_payload_records_must_be_contiguous_and_cover_data() -> None:
@@ -93,8 +122,7 @@ def test_encoded_shard_validates_digest() -> None:
 
 def test_encoded_shard_set_requires_exact_ordered_indexes_and_equal_sizes() -> None:
     shards = tuple(
-        EncodedShard(i, bytes([i]) * 4, digest(bytes([i]) * 4))
-        for i in range(3)
+        EncodedShard(i, bytes([i]) * 4, digest(bytes([i]) * 4)) for i in range(3)
     )
     result = EncodedShardSet(shards, 8, 2, 3)
     assert result.total_shards == 3
