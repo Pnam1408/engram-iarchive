@@ -1,11 +1,15 @@
 from typing import Any
 
-from .. import MetadataDB
+from ..database import MetadataDB
 from ..database.serialization import serialize, deserialize
 
 
 class BaseRepository:
+    """Shared persistence helpers for logical and physical repositories."""
+
     def __init__(self, db: MetadataDB):
+        if db is None:
+            raise TypeError("db is required")
         self.db = db
 
     def _get(self, column_family, key: bytes) -> dict | None:
@@ -19,6 +23,12 @@ class BaseRepository:
 
     def _put(self, column_family, key: bytes, value: dict) -> None:
         self.db.put(column_family, key, serialize(value))
+
+    def _put_batch(self, batch, column_family, key: bytes, value: dict) -> None:
+        """Stage a record in a caller-owned MetadataBatch; never commits it."""
+        if batch is None:
+            raise TypeError("batch is required")
+        batch.put(column_family, key, serialize(value))
 
     def _delete(self, column_family, key: bytes) -> None:
         self.db.delete(column_family, key)
@@ -47,3 +57,19 @@ class BaseRepository:
                 f"metadata cannot set protected fields: {sorted(conflicts)}"
             )
         return dict(metadata)
+
+    @staticmethod
+    def _require_dict(value: Any, model_name: str) -> dict:
+        if not isinstance(value, dict):
+            raise ValueError(f"{model_name} record must be a JSON object")
+        return value
+
+    @staticmethod
+    def _require_fields(value: dict, fields: set[str], model_name: str) -> None:
+        missing = fields - value.keys()
+        extra = value.keys() - fields
+        if missing or extra:
+            raise ValueError(
+                f"Invalid {model_name} fields: "
+                f"missing={sorted(missing)}, extra={sorted(extra)}"
+            )

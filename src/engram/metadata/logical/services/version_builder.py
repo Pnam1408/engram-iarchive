@@ -1,7 +1,7 @@
 from dataclasses import dataclass
-from engram.metadata.logical.models import Object, Version, VersionDelta
-from engram.metadata.logical.models._validation import validate_non_empty_string
-from engram.metadata.logical.models.unsigned_version import UnsignedVersion
+from ..models import Object, Version, VersionDelta
+from ..models._validation import validate_non_empty_string
+from ..models.unsigned_version import UnsignedVersion
 
 from .canonicalizer import Canonicalizer
 from .version_signer import VersionSigner

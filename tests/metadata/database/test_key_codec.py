@@ -1,7 +1,7 @@
 import pytest
 
 from engram.metadata.database.errors import KeyCodecError
-from engram.metadata import KeyCodec
+from engram.metadata.database import KeyCodec
 
 
 def test_encode_decode_bytes():

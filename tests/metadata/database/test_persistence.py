@@ -1,4 +1,4 @@
-from engram.metadata import MetadataDB, ColumnFamily
+from engram.metadata.database import MetadataDB, ColumnFamily
 
 
 def test_data_persists_after_reopen(tmp_path):

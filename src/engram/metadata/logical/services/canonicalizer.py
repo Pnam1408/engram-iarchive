@@ -2,15 +2,15 @@ import hashlib
 import struct
 from uuid import UUID
 
-from engram.metadata.logical.models import (
+from ..models import (
     Checkpoint,
     CheckpointEntry,
     ChunkRef,
     Version,
     VersionDelta,
 )
-from engram.metadata.logical.models.unsigned_version import UnsignedVersion
-from engram.metadata.logical.models._validation import (
+from ..models.unsigned_version import UnsignedVersion
+from ..models._validation import (
     validate_non_empty_string,
     validate_uuid,
 )

@@ -1,4 +1,4 @@
-from engram.metadata import MetadataDB, ColumnFamily
+from engram.metadata.database import MetadataDB, ColumnFamily
 
 
 def test_cross_column_family_write_batch(tmp_path):

@@ -2,11 +2,11 @@ from array import array
 from collections.abc import Callable
 from uuid import uuid4
 
-from engram.metadata.logical.models import (
+from ..models import (
     ChunkRef,
     VersionDelta,
 )
-from engram.metadata.logical.models._validation import (
+from ..models._validation import (
     validate_uuid,
     validate_non_empty_string,
     validate_positive_integer,

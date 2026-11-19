@@ -1,3 +1,4 @@
+import base64
 import json
 from typing import Any
 
@@ -25,3 +26,18 @@ def deserialize(data: bytes) -> Any:
         return json.loads(data.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise SerializationError(f"Cannot deserialize metadata value: {exc}") from exc
+
+
+def encode_bytes(value: bytes) -> str:
+    if not isinstance(value, bytes):
+        raise TypeError("value must be bytes")
+    return base64.b64encode(value).decode("ascii")
+
+
+def decode_bytes(value: Any, field: str) -> bytes:
+    if not isinstance(value, str):
+        raise SerializationError(f"{field} must be a base64 string")
+    try:
+        return base64.b64decode(value.encode("ascii"), validate=True)
+    except (ValueError, UnicodeEncodeError) as exc:
+        raise SerializationError(f"{field} contains invalid base64") from exc

@@ -1,4 +1,4 @@
-from engram.metadata.logical.models import ChunkRef, VersionDelta
+from ..models import ChunkRef, VersionDelta
 
 
 class DeltaApplyError(Exception):
