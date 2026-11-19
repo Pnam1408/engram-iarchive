@@ -39,4 +39,23 @@ __all__ = [
     "VersionSigner",
     "Ed25519VersionSigner",
     "verify_ed25519_signature",
+    "VersionCommitService",
+    "VersionCommitError",
+    "ObjectNotFoundError",
+    "VersionHeadConflictError",
+    "InvalidVersionBuildResultError",
+    "PhysicalReadinessError",
+    "MetadataCommitError",
+    "PhysicalReadinessChecker",
 ]
+
+from .version_commit_service import (
+    VersionCommitService,
+    VersionCommitError,
+    ObjectNotFoundError,
+    VersionHeadConflictError,
+    InvalidVersionBuildResultError,
+    PhysicalReadinessError,
+    MetadataCommitError,
+    PhysicalReadinessChecker,
+)
