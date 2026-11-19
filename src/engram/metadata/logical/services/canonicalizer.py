@@ -9,6 +9,7 @@ from engram.metadata.logical.models import (
     Version,
     VersionDelta,
 )
+from engram.metadata.logical.models.unsigned_version import UnsignedVersion
 from engram.metadata.logical.models._validation import (
     validate_non_empty_string,
     validate_uuid,
@@ -171,9 +172,9 @@ class Canonicalizer:
     # ------------------------------------------------------------------
 
     @classmethod
-    def _encode_version_fields(cls, version: Version) -> bytes:
-        if not isinstance(version, Version):
-            raise TypeError("version must be a Version")
+    def _encode_version_fields(cls, version: Version | UnsignedVersion) -> bytes:
+        if not isinstance(version, (Version, UnsignedVersion)):
+            raise TypeError("version must be a Version or UnsignedVersion")
 
         parent = (
             b"\x00"
@@ -204,12 +205,13 @@ class Canonicalizer:
     @classmethod
     def encode_version_signing_payload(
         cls,
-        version: Version,
+        version: Version | UnsignedVersion,
     ) -> bytes:
         """
         Returns the exact bytes to be signed.
 
-        The signature field is intentionally excluded.
+        Accepts UnsignedVersion before signing and Version for independent
+        signature verification. The signature field is intentionally excluded.
         """
         return b"".join(
             (
