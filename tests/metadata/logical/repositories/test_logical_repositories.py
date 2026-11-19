@@ -181,3 +181,212 @@ def test_all_three_repositories_share_one_atomic_batch(db):
     assert objects.get("object-A") == updated
     assert versions.get("object-A", 1) == version
     assert deltas.get("object-A", 1) == delta
+
+
+# Repository hardening: malformed records and key/value consistency.
+
+from engram.metadata.database import ColumnFamily, KeyCodec
+from engram.metadata.database.serialization import serialize
+from engram.metadata.repositories import CorruptMetadataError
+
+
+def test_object_repository_rejects_invalid_json(db):
+    repo = ObjectRepository(db)
+    db.put(ColumnFamily.OBJECTS, KeyCodec.object_key("object-A"), b"{not-json")
+
+    with pytest.raises(CorruptMetadataError):
+        repo.get("object-A")
+
+
+def test_object_repository_rejects_missing_or_extra_fields(db):
+    repo = ObjectRepository(db)
+    key = KeyCodec.object_key("object-A")
+
+    missing = {
+        "object_id": "object-A",
+        "head_sequence": 0,
+        "head_version_id": None,
+        "created_at": 1,
+        # updated_at deliberately missing
+    }
+    db.put(ColumnFamily.OBJECTS, key, serialize(missing))
+    with pytest.raises(CorruptMetadataError):
+        repo.get("object-A")
+
+    extra = {
+        "object_id": "object-A",
+        "head_sequence": 0,
+        "head_version_id": None,
+        "created_at": 1,
+        "updated_at": 1,
+        "unexpected": True,
+    }
+    db.put(ColumnFamily.OBJECTS, key, serialize(extra))
+    with pytest.raises(CorruptMetadataError):
+        repo.get("object-A")
+
+
+def test_object_repository_rejects_key_value_mismatch(db):
+    repo = ObjectRepository(db)
+    obj = Object("object-B", created_at=1, updated_at=1)
+    db.put(
+        ColumnFamily.OBJECTS,
+        KeyCodec.object_key("object-A"),
+        serialize(
+            {
+                "object_id": obj.object_id,
+                "head_sequence": obj.head_sequence,
+                "head_version_id": obj.head_version_id,
+                "created_at": obj.created_at,
+                "updated_at": obj.updated_at,
+            }
+        ),
+    )
+
+    with pytest.raises(CorruptMetadataError):
+        repo.get("object-A")
+
+
+def test_version_repository_rejects_invalid_base64(db):
+    repo = VersionRepository(db)
+    version = make_version("object-A", 1)
+    record = repo._to_dict(version)
+    record["delta_root"] = "%%%not-base64%%%"
+    db.put(
+        ColumnFamily.VERSIONS,
+        KeyCodec.version_key("object-A", 1),
+        serialize(record),
+    )
+
+    with pytest.raises(CorruptMetadataError):
+        repo.get("object-A", 1)
+
+
+def test_version_repository_rejects_key_value_mismatch(db):
+    repo = VersionRepository(db)
+    version = make_version("object-B", 1)
+    db.put(
+        ColumnFamily.VERSIONS,
+        KeyCodec.version_key("object-A", 1),
+        serialize(repo._to_dict(version)),
+    )
+
+    with pytest.raises(CorruptMetadataError):
+        repo.get("object-A", 1)
+
+
+def test_version_repository_rejects_duplicate_version_id(db):
+    repo = VersionRepository(db)
+    v1 = make_version("object-A", 1)
+    # Parent ID khác VersionID của v1 để không vi phạm domain invariant.
+    another_parent_id = str(uuid4())
+    from dataclasses import replace
+
+    v2 = make_version(
+        "object-A",
+        2,
+        another_parent_id,
+        b"h" * 32,
+    )
+
+    # Hai Version có cùng VersionID nhưng khác Sequence.
+    v2 = replace(v2, version_id=v1.version_id)
+
+    with db.batch() as batch:
+        repo.put(v1, batch)
+        batch.commit()
+
+    with db.batch() as batch:
+        with pytest.raises(RecordAlreadyExistsError):
+            repo.put(v2, batch)
+
+
+def test_version_delta_rejects_malformed_added_chunk_ref(db):
+    repo = VersionDeltaRepository(db)
+    version = make_version("object-A", 1)
+    record = repo._to_dict(make_delta("object-A", version))
+    record["added_chunks"] = [{"chunk_ref_id": "missing-other-fields"}]
+    db.put(
+        ColumnFamily.VERSION_DELTAS,
+        KeyCodec.version_delta_key("object-A", 1),
+        serialize(record),
+    )
+
+    with pytest.raises(CorruptMetadataError):
+        repo.get("object-A", 1)
+
+
+def test_version_delta_rejects_key_value_mismatch(db):
+    repo = VersionDeltaRepository(db)
+    version = make_version("object-B", 1)
+    delta = make_delta("object-B", version)
+    db.put(
+        ColumnFamily.VERSION_DELTAS,
+        KeyCodec.version_delta_key("object-A", 1),
+        serialize(repo._to_dict(delta)),
+    )
+
+    with pytest.raises(CorruptMetadataError):
+        repo.get("object-A", 1)
+
+
+def test_version_get_latest_rejects_dangling_or_mismatched_head(db):
+    objects = ObjectRepository(db)
+    versions = VersionRepository(db)
+    obj = Object(
+        object_id="object-A",
+        head_sequence=1,
+        head_version_id=str(uuid4()),
+        created_at=1,
+        updated_at=2,
+    )
+    with db.batch() as batch:
+        objects.put(obj, batch)
+        batch.commit()
+
+    with pytest.raises(CorruptMetadataError):
+        versions.get_latest("object-A")
+
+
+def test_repositories_survive_database_reopen(db):
+    objects = ObjectRepository(db)
+    versions = VersionRepository(db)
+    deltas = VersionDeltaRepository(db)
+    obj = Object("object-reopen", created_at=1, updated_at=1)
+    version = make_version(obj.object_id, 1)
+    delta = make_delta(obj.object_id, version)
+
+    with db.batch() as batch:
+        objects.put(obj, batch)
+        versions.put(version, batch)
+        deltas.put(delta, batch)
+        batch.commit()
+
+    path = db.path
+    db.close()
+    reopened = MetadataDB(path)
+    try:
+        assert ObjectRepository(reopened).get(obj.object_id) == obj
+        assert VersionRepository(reopened).get(obj.object_id, 1) == version
+        assert VersionDeltaRepository(reopened).get(obj.object_id, 1) == delta
+    finally:
+        reopened.close()
+
+
+def test_uncommitted_multi_repository_batch_leaves_all_records_absent(db):
+    objects = ObjectRepository(db)
+    versions = VersionRepository(db)
+    deltas = VersionDeltaRepository(db)
+    obj = Object("object-uncommitted", created_at=1, updated_at=1)
+    version = make_version(obj.object_id, 1)
+    delta = make_delta(obj.object_id, version)
+
+    with db.batch() as batch:
+        objects.put(obj, batch)
+        versions.put(version, batch)
+        deltas.put(delta, batch)
+        # Deliberately omit batch.commit().
+
+    assert objects.get(obj.object_id) is None
+    assert versions.get(obj.object_id, 1) is None
+    assert deltas.get(obj.object_id, 1) is None
