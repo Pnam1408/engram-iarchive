@@ -9,10 +9,17 @@ from ..repositories import (
     ObjectRepository,
     VersionRepository,
     VersionDeltaRepository,
+    ObjectChunkIndexRepository,
+    ChunkRepository,
+    ObjectChunkIndexError,
 )
 from .canonicalizer import Canonicalizer
 from .version_builder import VersionBuildResult
 from .version_signer import verify_ed25519_signature
+from .object_chunk_index_updater import (
+    ObjectChunkIndexUpdater,
+    ObjectChunkIndexUpdateError,
+)
 
 
 class VersionCommitError(Exception):
@@ -49,7 +56,8 @@ class PhysicalReadinessChecker(Protocol):
 
 class VersionCommitService:
     """
-    Atomically publishes a signed Version, its Delta, and the Object Head.
+    Atomically publishes four logical records:
+    Version, VersionDelta, Object Chunk Index, and Object Head.
 
     Concurrency is serialized per Object within this process. This is not a
     cross-process transaction/lock; deployments with multiple writers must add
@@ -62,6 +70,7 @@ class VersionCommitService:
         physical_readiness: PhysicalReadinessChecker,
         *,
         canonicalizer: Canonicalizer | None = None,
+        index_updater: ObjectChunkIndexUpdater | None = None,
     ) -> None:
         if db is None:
             raise TypeError("db is required")
@@ -73,6 +82,10 @@ class VersionCommitService:
         self._deltas = VersionDeltaRepository(db)
         self._readiness = physical_readiness
         self._canonicalizer = canonicalizer or Canonicalizer()
+        self._index_updater = index_updater or ObjectChunkIndexUpdater(
+            ObjectChunkIndexRepository(db),
+            ChunkRepository(db),
+        )
         self._locks_guard = Lock()
         self._object_locks: dict[str, Lock] = {}
 
@@ -142,11 +155,19 @@ class VersionCommitService:
                 with self._db.batch() as batch:
                     self._versions.put(version, batch)
                     self._deltas.put(delta, batch)
+                    self._index_updater.stage_delta(
+                        object_id=obj.object_id,
+                        delta=delta,
+                        expected_sequence=obj.head_sequence,
+                        batch=batch,
+                    )
                     self._objects.put(updated_object, batch)
                     batch.commit()
+            except (ObjectChunkIndexUpdateError, ObjectChunkIndexError):
+                raise
             except Exception as exc:
                 raise MetadataCommitError(
-                    "Failed to atomically commit Version metadata"
+                    "Failed to atomically commit Version, Delta, Object Chunk Index, and Object Head"
                 ) from exc
 
             return version

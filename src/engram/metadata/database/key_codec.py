@@ -248,6 +248,16 @@ class KeyCodec:
         return cls.encode_string(object_id)
 
     @classmethod
+    def object_chunk_index_state_key(cls, object_id: str) -> bytes:
+        """
+        Reserved per-Object index-state key.
+
+        The NUL suffix cannot be a valid fractional OrderKey, so it cannot
+        collide with an entry key in the same Object prefix.
+        """
+        return cls.object_chunk_index_prefix(object_id) + b"\x00"
+
+    @classmethod
     def object_chunk_index_key(
         cls,
         object_id: str,

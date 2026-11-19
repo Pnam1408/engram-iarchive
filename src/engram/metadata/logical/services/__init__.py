@@ -47,6 +47,9 @@ __all__ = [
     "PhysicalReadinessError",
     "MetadataCommitError",
     "PhysicalReadinessChecker",
+    "ObjectChunkIndexUpdater",
+    "ObjectChunkIndexUpdateError",
+    "MissingChunkCatalogRecordError",
 ]
 
 from .version_commit_service import (
@@ -59,3 +62,51 @@ from .version_commit_service import (
     MetadataCommitError,
     PhysicalReadinessChecker,
 )
+
+from .object_chunk_index_updater import (
+    ObjectChunkIndexUpdater,
+    ObjectChunkIndexUpdateError,
+    MissingChunkCatalogRecordError,
+)
+
+from .checkpoint import (
+    CheckpointBuilder,
+    CheckpointBuildResult,
+    CheckpointVerifier,
+    CheckpointService,
+    CheckpointError,
+    CheckpointHeadMismatchError,
+    CheckpointVerificationError,
+    CheckpointConcurrentUpdateError,
+)
+
+__all__ += [
+    "CheckpointBuilder",
+    "CheckpointBuildResult",
+    "CheckpointVerifier",
+    "CheckpointService",
+    "CheckpointError",
+    "CheckpointHeadMismatchError",
+    "CheckpointVerificationError",
+    "CheckpointConcurrentUpdateError",
+]
+
+from .object_chunk_index_rebuilder import (
+    ObjectChunkIndexRebuilder,
+    ObjectChunkIndexRebuildResult,
+    ObjectChunkIndexRebuildError,
+    ObjectChunkIndexTargetError,
+    ObjectChunkIndexHistoryError,
+    ObjectChunkIndexCheckpointError,
+    ObjectChunkIndexRebuildConflictError,
+)
+
+__all__ += [
+    "ObjectChunkIndexRebuilder",
+    "ObjectChunkIndexRebuildResult",
+    "ObjectChunkIndexRebuildError",
+    "ObjectChunkIndexTargetError",
+    "ObjectChunkIndexHistoryError",
+    "ObjectChunkIndexCheckpointError",
+    "ObjectChunkIndexRebuildConflictError",
+]
