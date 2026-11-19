@@ -1,6 +1,6 @@
-from ..column_families import ColumnFamily
-from ..key_codec import KeyCodec
-from ..serialization import serialize, deserialize
+from ..database.column_families import ColumnFamily
+from ..database.key_codec import KeyCodec
+from ..database.serialization import serialize, deserialize
 from .base import BaseRepository
 
 

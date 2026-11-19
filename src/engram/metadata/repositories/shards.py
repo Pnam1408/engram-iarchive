@@ -1,6 +1,6 @@
-from ..column_families import ColumnFamily
-from ..key_codec import KeyCodec
-from ..serialization import serialize
+from ..database.column_families import ColumnFamily
+from ..database.key_codec import KeyCodec
+from ..database.serialization import serialize
 from .base import BaseRepository
 
 
@@ -67,6 +67,6 @@ class ShardRepository(BaseRepository):
 
     @staticmethod
     def _get_record(value: bytes) -> dict:
-        from ..serialization import deserialize
+        from ..database.serialization import deserialize
 
         return deserialize(value)

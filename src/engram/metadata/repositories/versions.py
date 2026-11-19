@@ -1,8 +1,8 @@
-from ..column_families import ColumnFamily
-from ..key_codec import KeyCodec
+from ..database.column_families import ColumnFamily
+from ..database.key_codec import KeyCodec
 from collections import Counter
 
-from ..serialization import serialize, deserialize
+from ..database.serialization import serialize, deserialize
 from .base import BaseRepository
 
 

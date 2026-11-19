@@ -1,11 +1,11 @@
 import pytest
 
 from engram.metadata import MetadataDB, ColumnFamily
-from engram.metadata.errors import (
+from engram.metadata.database.errors import (
     MetadataClosedError,
     UnknownColumnFamilyError,
 )
-from engram.metadata.key_codec import KeyCodec
+from engram.metadata.database.key_codec import KeyCodec
 
 
 def test_all_column_families_exist(tmp_path):

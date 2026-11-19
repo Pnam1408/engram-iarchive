@@ -1,6 +1,6 @@
 import pytest
 
-from engram.metadata.errors import KeyCodecError
+from engram.metadata.database.errors import KeyCodecError
 from engram.metadata import KeyCodec
 
 

@@ -1,7 +1,7 @@
 import pytest
 
-from engram.metadata.column_families import ColumnFamily
-from engram.metadata.key_codec import KeyCodec
+from engram.metadata.database.column_families import ColumnFamily
+from engram.metadata.database.key_codec import KeyCodec
 from tests.metadata.conftest import make_chunks_available
 
 

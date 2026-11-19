@@ -1,7 +1,7 @@
 from typing import Any
 
-from ..database import MetadataDB
-from ..serialization import serialize, deserialize
+from .. import MetadataDB
+from ..database.serialization import serialize, deserialize
 
 
 class BaseRepository:
