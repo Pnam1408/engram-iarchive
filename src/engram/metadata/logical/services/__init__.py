@@ -21,6 +21,44 @@ from .version_signer import (
     verify_ed25519_signature,
 )
 
+from .version_commit_service import (
+    VersionCommitService,
+    VersionCommitError,
+    ObjectNotFoundError,
+    VersionHeadConflictError,
+    InvalidVersionBuildResultError,
+    PhysicalReadinessError,
+    MetadataCommitError,
+    PhysicalReadinessChecker,
+)
+
+from .object_chunk_index_updater import (
+    ObjectChunkIndexUpdater,
+    ObjectChunkIndexUpdateError,
+    MissingChunkCatalogRecordError,
+)
+
+from .checkpoint import (
+    CheckpointBuilder,
+    CheckpointBuildResult,
+    CheckpointVerifier,
+    CheckpointService,
+    CheckpointError,
+    CheckpointHeadMismatchError,
+    CheckpointVerificationError,
+    CheckpointConcurrentUpdateError,
+)
+
+from .object_chunk_index_rebuilder import (
+    ObjectChunkIndexRebuilder,
+    ObjectChunkIndexRebuildResult,
+    ObjectChunkIndexRebuildError,
+    ObjectChunkIndexTargetError,
+    ObjectChunkIndexHistoryError,
+    ObjectChunkIndexCheckpointError,
+    ObjectChunkIndexRebuildConflictError,
+)
+
 __all__ = [
     "OrderKeyService",
     "SequenceDiffPlanner",
@@ -50,37 +88,6 @@ __all__ = [
     "ObjectChunkIndexUpdater",
     "ObjectChunkIndexUpdateError",
     "MissingChunkCatalogRecordError",
-]
-
-from .version_commit_service import (
-    VersionCommitService,
-    VersionCommitError,
-    ObjectNotFoundError,
-    VersionHeadConflictError,
-    InvalidVersionBuildResultError,
-    PhysicalReadinessError,
-    MetadataCommitError,
-    PhysicalReadinessChecker,
-)
-
-from .object_chunk_index_updater import (
-    ObjectChunkIndexUpdater,
-    ObjectChunkIndexUpdateError,
-    MissingChunkCatalogRecordError,
-)
-
-from .checkpoint import (
-    CheckpointBuilder,
-    CheckpointBuildResult,
-    CheckpointVerifier,
-    CheckpointService,
-    CheckpointError,
-    CheckpointHeadMismatchError,
-    CheckpointVerificationError,
-    CheckpointConcurrentUpdateError,
-)
-
-__all__ += [
     "CheckpointBuilder",
     "CheckpointBuildResult",
     "CheckpointVerifier",
@@ -89,19 +96,6 @@ __all__ += [
     "CheckpointHeadMismatchError",
     "CheckpointVerificationError",
     "CheckpointConcurrentUpdateError",
-]
-
-from .object_chunk_index_rebuilder import (
-    ObjectChunkIndexRebuilder,
-    ObjectChunkIndexRebuildResult,
-    ObjectChunkIndexRebuildError,
-    ObjectChunkIndexTargetError,
-    ObjectChunkIndexHistoryError,
-    ObjectChunkIndexCheckpointError,
-    ObjectChunkIndexRebuildConflictError,
-)
-
-__all__ += [
     "ObjectChunkIndexRebuilder",
     "ObjectChunkIndexRebuildResult",
     "ObjectChunkIndexRebuildError",
