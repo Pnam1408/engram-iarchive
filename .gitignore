@@ -2,7 +2,7 @@
 .venv-win
 .pytest_cache
 __pycache__
-zk/build
+build
 zk/node_modules
 results
 storage_nodes

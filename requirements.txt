@@ -3,3 +3,4 @@ reedsolo
 pytest
 hypothesis
 rocksdict
+fractional-indexing
