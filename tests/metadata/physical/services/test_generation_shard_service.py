@@ -63,7 +63,7 @@ def setup():
 def test_register_stages_complete_shard_set_in_index_order(setup):
     service, _, repository, gid, records = setup
     batch = Batch()
-    result = service.register_shards(gid, tuple(reversed(records)), batch)
+    result = service.register_shards(gid, tuple(reversed(records)), batch=batch)
 
     assert result == GenerationShardSet(gid, records)
     assert repository.staged == [(record, batch) for record in records]
@@ -72,7 +72,7 @@ def test_register_stages_complete_shard_set_in_index_order(setup):
 def test_register_requires_existing_generation(setup):
     service, _, _, _, records = setup
     with pytest.raises(GenerationShardGenerationNotFoundError):
-        service.register_shards(str(uuid.uuid4()), records, Batch())
+        service.register_shards(str(uuid.uuid4()), records, batch=Batch())
 
 
 def test_register_only_during_encoding(setup):
@@ -81,7 +81,7 @@ def test_register_only_during_encoding(setup):
         gid, 2, 4, GenerationStatus.SEALED, 10, 11, sealed_at=11
     )
     with pytest.raises(GenerationShardPreconditionError):
-        service.register_shards(gid, records, Batch())
+        service.register_shards(gid, records, batch=Batch())
     assert not repository.staged
 
 
@@ -92,17 +92,17 @@ def test_register_only_during_encoding(setup):
 def test_register_rejects_invalid_container_or_wrong_generation(setup, invalid):
     service, _, repository, gid, _ = setup
     with pytest.raises((TypeError, GenerationShardPreconditionError)):
-        service.register_shards(gid, invalid, Batch())
+        service.register_shards(gid, invalid, batch=Batch())
     assert not repository.staged
 
 
 def test_register_rejects_missing_or_duplicate_indices(setup):
     service, _, repository, gid, records = setup
     with pytest.raises(GenerationShardPreconditionError):
-        service.register_shards(gid, records[:-1], Batch())
+        service.register_shards(gid, records[:-1], batch=Batch())
     duplicated = records[:-1] + (records[0],)
     with pytest.raises(GenerationShardPreconditionError):
-        service.register_shards(gid, duplicated, Batch())
+        service.register_shards(gid, duplicated, batch=Batch())
     assert not repository.staged
 
 
@@ -110,7 +110,7 @@ def test_register_rejects_existing_partial_shard_set(setup):
     service, _, repository, gid, records = setup
     repository.items[(gid, 0)] = records[0]
     with pytest.raises(GenerationShardAlreadyRegisteredError):
-        service.register_shards(gid, records, Batch())
+        service.register_shards(gid, records, batch=Batch())
     assert not repository.staged
 
 

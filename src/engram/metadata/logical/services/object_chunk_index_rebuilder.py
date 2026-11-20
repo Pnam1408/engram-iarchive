@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from threading import Lock
 
 from ..models import ChunkRef, CheckpointEntry, Checkpoint, Version
 from ..repositories import (
@@ -11,10 +10,9 @@ from ..repositories import (
     ObjectRepository,
     VersionDeltaRepository,
     VersionRepository,
-    CheckpointEntryRepository,
     ObjectChunkIndexSequenceConflictError,
 )
-from ...database import MetadataDB
+from ...database import MetadataBatch
 from ...repositories import CorruptMetadataError
 from .canonicalizer import Canonicalizer
 from .checkpoint import CheckpointError, CheckpointService
@@ -39,7 +37,7 @@ class ObjectChunkIndexCheckpointError(ObjectChunkIndexRebuildError):
 
 
 class ObjectChunkIndexRebuildConflictError(ObjectChunkIndexRebuildError):
-    """The Object Head or index changed before the rebuilt state was persisted."""
+    """The Object Head or index changed while rebuilding or staging the index."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,7 +48,7 @@ class ObjectChunkIndexRebuildResult:
     refs: tuple[ChunkRef, ...]
     checkpoint_sequence: int
     replayed_versions: int
-    persisted: bool
+    staged: bool
 
 
 class ObjectChunkIndexRebuilder:
@@ -64,37 +62,40 @@ class ObjectChunkIndexRebuilder:
 
     def __init__(
         self,
-        db: MetadataDB,
+        objects: ObjectRepository,
+        versions: VersionRepository,
+        deltas: VersionDeltaRepository,
+        chunks: ChunkRepository,
+        index: ObjectChunkIndexRepository,
+        checkpoints: CheckpointRepository,
         *,
+        checkpoint_service: CheckpointService,
         canonicalizer: Canonicalizer | None = None,
         delta_applier: DeltaApplier | None = None,
-        checkpoint_service: CheckpointService | None = None,
     ) -> None:
-        if db is None:
-            raise TypeError("db is required")
-        self._db = db
-        self._objects = ObjectRepository(db)
-        self._versions = VersionRepository(db)
-        self._deltas = VersionDeltaRepository(db)
-        self._chunks = ChunkRepository(db)
-        self._index = ObjectChunkIndexRepository(db)
-        self._checkpoints = CheckpointRepository(db)
-        self._checkpoint_entries = CheckpointEntryRepository(db)
+        """Create a rebuilder with all persistence and service dependencies injected."""
+        dependencies = {
+            "objects": objects,
+            "versions": versions,
+            "deltas": deltas,
+            "chunks": chunks,
+            "index": index,
+            "checkpoints": checkpoints,
+            "checkpoint_service": checkpoint_service,
+        }
+        missing = [name for name, value in dependencies.items() if value is None]
+        if missing:
+            raise TypeError(f"Missing required dependencies: {', '.join(missing)}")
+
+        self._objects = objects
+        self._versions = versions
+        self._deltas = deltas
+        self._chunks = chunks
+        self._index = index
+        self._checkpoints = checkpoints
         self._canonicalizer = canonicalizer or Canonicalizer()
         self._applier = delta_applier or DeltaApplier()
-        self._checkpoint_service = checkpoint_service or CheckpointService(
-            db, canonicalizer=self._canonicalizer, verify_chunk_catalog=True
-        )
-        self._locks_guard = Lock()
-        self._locks: dict[str, Lock] = {}
-
-    def _lock_for(self, object_id: str) -> Lock:
-        with self._locks_guard:
-            lock = self._locks.get(object_id)
-            if lock is None:
-                lock = Lock()
-                self._locks[object_id] = lock
-            return lock
+        self._checkpoint_service = checkpoint_service
 
     def reconstruct(
         self,
@@ -118,7 +119,7 @@ class ObjectChunkIndexRebuilder:
                 refs=(),
                 checkpoint_sequence=0,
                 replayed_versions=0,
-                persisted=False,
+                staged=False,
             )
 
         checkpoint_state = self._find_checkpoint_state(object_id, target_sequence)
@@ -198,60 +199,65 @@ class ObjectChunkIndexRebuilder:
             refs=state,
             checkpoint_sequence=start_sequence,
             replayed_versions=replayed,
-            persisted=False,
+            staged=False,
         )
 
-    def rebuild_current(self, object_id: str) -> ObjectChunkIndexRebuildResult:
-        with self._lock_for(object_id):
-            obj_before = self._objects.get(object_id)
-            if obj_before is None:
-                raise ObjectChunkIndexTargetError(
-                    f"Object {object_id!r} does not exist"
-                )
+    def stage_rebuild_current(
+        self,
+        object_id: str,
+        *,
+        batch: MetadataBatch,
+    ) -> ObjectChunkIndexRebuildResult:
+        """Reconstruct the current index and stage its replacement.
 
-            index_snapshot_token = self._index.snapshot_token(object_id)
-            result = self.reconstruct(object_id, obj_before.head_sequence)
+        No transaction is opened or committed here. If this method raises
+        after staging has begun, the caller must discard the entire batch.
+        The caller must also serialize updates for this Object until commit;
+        the optimistic checks below do not provide cross-process CAS.
+        """
+        if batch is None:
+            raise TypeError("batch is required")
 
-            obj_after = self._objects.get(object_id)
-            if obj_after != obj_before:
-                raise ObjectChunkIndexRebuildConflictError(
-                    "Object Head changed while rebuilding the index"
-                )
+        obj_before = self._objects.get(object_id)
+        if obj_before is None:
+            raise ObjectChunkIndexTargetError(f"Object {object_id!r} does not exist")
 
-            try:
-                with self._db.batch() as batch:
-                    self._index.stage_replacement(
-                        object_id=object_id,
-                        expected_snapshot_token=index_snapshot_token,
-                        new_sequence=obj_before.head_sequence,
-                        refs=result.refs,
-                        batch=batch,
-                    )
+        index_snapshot_token = self._index.snapshot_token(object_id)
+        result = self.reconstruct(object_id, obj_before.head_sequence)
 
-                    # Final optimistic Head check immediately before commit.
-                    if self._objects.get(object_id) != obj_before:
-                        raise ObjectChunkIndexRebuildConflictError(
-                            "Object Head changed before index replacement"
-                        )
-
-                    batch.commit()
-
-            except ObjectChunkIndexRebuildConflictError:
-                raise
-            except ObjectChunkIndexSequenceConflictError as exc:
-                raise ObjectChunkIndexRebuildConflictError(
-                    "Object Chunk Index changed before replacement"
-                ) from exc
-
-            return ObjectChunkIndexRebuildResult(
-                object_id=result.object_id,
-                sequence=result.sequence,
-                version_id=result.version_id,
-                refs=result.refs,
-                checkpoint_sequence=result.checkpoint_sequence,
-                replayed_versions=result.replayed_versions,
-                persisted=True,
+        if self._objects.get(object_id) != obj_before:
+            raise ObjectChunkIndexRebuildConflictError(
+                "Object Head changed while rebuilding the index"
             )
+
+        try:
+            self._index.stage_replacement(
+                object_id=object_id,
+                expected_snapshot_token=index_snapshot_token,
+                new_sequence=obj_before.head_sequence,
+                refs=result.refs,
+                batch=batch,
+            )
+        except ObjectChunkIndexSequenceConflictError as exc:
+            raise ObjectChunkIndexRebuildConflictError(
+                "Object Chunk Index changed before replacement staging"
+            ) from exc
+
+        # If this check fails, the caller must discard the now-staged batch.
+        if self._objects.get(object_id) != obj_before:
+            raise ObjectChunkIndexRebuildConflictError(
+                "Object Head changed while staging the index replacement"
+            )
+
+        return ObjectChunkIndexRebuildResult(
+            object_id=result.object_id,
+            sequence=result.sequence,
+            version_id=result.version_id,
+            refs=result.refs,
+            checkpoint_sequence=result.checkpoint_sequence,
+            replayed_versions=result.replayed_versions,
+            staged=True,
+        )
 
     def _find_checkpoint_state(
         self, object_id: str, target_sequence: int

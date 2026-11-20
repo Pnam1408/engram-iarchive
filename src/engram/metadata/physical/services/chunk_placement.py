@@ -1,8 +1,16 @@
-from ..models import (
-    ChunkPlacement,
-    GenerationManifestEntry,
-    GenerationStatus,
-)
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from ..models import ChunkPlacement, GenerationManifestEntry, GenerationStatus
+
+if TYPE_CHECKING:
+    from ...database.batch import MetadataBatch
+    from ..repositories import (
+        ChunkPlacementRepository,
+        GenerationManifestEntryRepository,
+        GenerationRepository,
+    )
 
 
 class ChunkPlacementServiceError(Exception):
@@ -39,9 +47,9 @@ class ChunkPlacementService:
 
     def __init__(
         self,
-        generation_repository,
-        manifest_entry_repository,
-        chunk_placement_repository,
+        generation_repository: GenerationRepository,
+        manifest_entry_repository: GenerationManifestEntryRepository,
+        chunk_placement_repository: ChunkPlacementRepository,
     ) -> None:
         for name, repository in (
             ("generation_repository", generation_repository),
@@ -59,7 +67,8 @@ class ChunkPlacementService:
         self,
         placement: ChunkPlacement,
         manifest_entry: GenerationManifestEntry,
-        batch,
+        *,
+        batch: MetadataBatch,
     ) -> ChunkPlacement:
         """Stage one immutable Placement after matching its persisted Entry."""
         if not isinstance(placement, ChunkPlacement):
@@ -93,9 +102,7 @@ class ChunkPlacementService:
         existing_for_chunk = self._placements.list_for_chunk(
             placement.object_id, placement.chunk_id
         )
-        if any(
-            item.generation_id == generation_id for item in existing_for_chunk
-        ):
+        if any(item.generation_id == generation_id for item in existing_for_chunk):
             raise ChunkPlacementAlreadyRegisteredError(
                 "A ChunkPlacement for this Object/Chunk already exists in the Generation"
             )
@@ -145,8 +152,7 @@ class ChunkPlacementService:
             placement.object_id, placement.chunk_id
         )
         in_generation = tuple(
-            item for item in same_chunk
-            if item.generation_id == placement.generation_id
+            item for item in same_chunk if item.generation_id == placement.generation_id
         )
         if len(in_generation) != 1 or in_generation[0].placement_id != placement_id:
             raise ChunkPlacementIntegrityError(

@@ -101,7 +101,7 @@ def test_register_and_get_receipt(setup):
     service, placement, shard, receipts = setup
     receipt = make_receipt(placement, shard)
     batch = []
-    assert service.register(receipt, batch) == receipt
+    assert service.register(receipt, batch=batch) == receipt
     assert batch == [receipt]
     assert service.get(receipt.receipt_id) == receipt
     assert service.require(receipt.receipt_id) == receipt
@@ -111,7 +111,7 @@ def test_register_rejects_missing_placement(setup):
     service, placement, shard, _ = setup
     orphan = make_receipt(placement, shard, placement_id=uid())
     with pytest.raises(StorageReceiptPlacementNotFoundError):
-        service.register(orphan, [])
+        service.register(orphan, batch=[])
 
 
 @pytest.mark.parametrize(
@@ -128,14 +128,14 @@ def test_register_rejects_mismatched_metadata(setup, field, value):
     service, placement, shard, _ = setup
     receipt = make_receipt(placement, shard, **{field: value})
     with pytest.raises(StorageReceiptIntegrityError):
-        service.register(receipt, [])
+        service.register(receipt, batch=[])
 
 
 def test_register_rejects_receipt_before_placement_creation(setup):
     service, placement, shard, _ = setup
     receipt = make_receipt(placement, shard, issued_at=99)
     with pytest.raises(StorageReceiptIntegrityError):
-        service.register(receipt, [])
+        service.register(receipt, batch=[])
 
 
 def test_verification_receipt_cannot_predate_stored_at(setup):
@@ -154,13 +154,13 @@ def test_verification_receipt_cannot_predate_stored_at(setup):
     service._placements.values[placement.placement_id] = stored
     receipt = make_receipt(stored, shard, ReceiptType.STORAGE_VERIFICATION, 119)
     with pytest.raises(StorageReceiptIntegrityError):
-        service.register(receipt, [])
+        service.register(receipt, batch=[])
 
 
 def test_list_and_validate_for_placement(setup):
     service, placement, shard, _ = setup
     receipt = make_receipt(placement, shard)
-    service.register(receipt, [])
+    service.register(receipt, batch=[])
     assert service.list_for_placement(placement.placement_id) == (receipt,)
     assert service.validate(receipt.receipt_id)
     assert service.validate_for_placement(placement.placement_id)
@@ -175,9 +175,9 @@ def test_validate_missing_receipt(setup):
 def test_receipt_is_append_only_and_duplicate_id_rejected(setup):
     service, placement, shard, _ = setup
     receipt = make_receipt(placement, shard)
-    service.register(receipt, [])
+    service.register(receipt, batch=[])
     with pytest.raises(StorageReceiptAlreadyExistsError):
-        service.register(receipt, [])
+        service.register(receipt, batch=[])
 
 
 def test_list_for_missing_placement_rejected(setup):

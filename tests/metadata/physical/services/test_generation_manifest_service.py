@@ -89,7 +89,7 @@ def setup():
 def test_register_stages_manifest_and_entries_in_caller_batch(setup):
     service, _, manifests, entries, manifest, records = setup
     batch = Batch()
-    result = service.register(manifest, records, batch)
+    result = service.register(manifest, records, batch=batch)
 
     assert result == GenerationManifestBundle(manifest, records)
     assert manifests.staged == [(manifest, batch)]
@@ -102,7 +102,7 @@ def test_register_requires_existing_generation(setup):
         service.register(
             GenerationManifest(str(uuid.uuid4()), 2, 12, b"m" * 32, 11),
             records,
-            Batch(),
+            batch=Batch(),
         )
 
 
@@ -118,7 +118,7 @@ def test_register_only_while_open(setup):
         sealed_at=12,
     )
     with pytest.raises(GenerationManifestPreconditionError):
-        service.register(manifest, records, Batch())
+        service.register(manifest, records, batch=Batch())
     assert not manifests.staged
     assert not entries.staged
 
@@ -127,7 +127,7 @@ def test_register_rejects_invalid_entries_before_staging(setup):
     service, _, manifests, entries, manifest, records = setup
     invalid = (records[1], records[0])
     with pytest.raises(GenerationManifestPreconditionError):
-        service.register(manifest, invalid, Batch())
+        service.register(manifest, invalid, batch=Batch())
     assert not manifests.staged
     assert not entries.staged
 
@@ -136,12 +136,12 @@ def test_register_rejects_existing_manifest_or_orphan_entries(setup):
     service, _, manifests, entries, manifest, records = setup
     manifests.items[manifest.generation_id] = manifest
     with pytest.raises(GenerationManifestAlreadyRegisteredError):
-        service.register(manifest, records, Batch())
+        service.register(manifest, records, batch=Batch())
 
     manifests.items.clear()
     entries.items[manifest.generation_id] = records
     with pytest.raises(GenerationManifestAlreadyRegisteredError):
-        service.register(manifest, records, Batch())
+        service.register(manifest, records, batch=Batch())
 
 
 def test_getters_and_validate_existing_bundle(setup):

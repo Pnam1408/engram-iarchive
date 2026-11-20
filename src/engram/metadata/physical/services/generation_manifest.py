@@ -1,6 +1,17 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..models import GenerationManifest, GenerationManifestEntry, GenerationStatus
+
+if TYPE_CHECKING:
+    from ...database.batch import MetadataBatch
+    from ..repositories import (
+        GenerationManifestEntryRepository,
+        GenerationManifestRepository,
+        GenerationRepository,
+    )
 
 
 class GenerationManifestServiceError(Exception):
@@ -43,9 +54,9 @@ class GenerationManifestService:
 
     def __init__(
         self,
-        generation_repository,
-        manifest_repository,
-        manifest_entry_repository,
+        generation_repository: GenerationRepository,
+        manifest_repository: GenerationManifestRepository,
+        manifest_entry_repository: GenerationManifestEntryRepository,
     ) -> None:
         for name, repository in (
             ("generation_repository", generation_repository),
@@ -63,7 +74,8 @@ class GenerationManifestService:
         self,
         manifest: GenerationManifest,
         entries: tuple[GenerationManifestEntry, ...],
-        batch,
+        *,
+        batch: MetadataBatch,
     ) -> GenerationManifestBundle:
         """Stage a complete Manifest and its entries for an OPEN Generation."""
         if not isinstance(manifest, GenerationManifest):

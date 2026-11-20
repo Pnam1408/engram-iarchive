@@ -1,6 +1,13 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from ..models import GenerationShard, GenerationStatus
+
+if TYPE_CHECKING:
+    from ...database.batch import MetadataBatch
+    from ..repositories import GenerationRepository, GenerationShardRepository
 
 
 class GenerationShardServiceError(Exception):
@@ -44,7 +51,11 @@ class GenerationShardService:
     by this service.
     """
 
-    def __init__(self, generation_repository, shard_repository) -> None:
+    def __init__(
+        self,
+        generation_repository: GenerationRepository,
+        shard_repository: GenerationShardRepository,
+    ) -> None:
         if generation_repository is None:
             raise TypeError("generation_repository is required")
         if shard_repository is None:
@@ -56,7 +67,8 @@ class GenerationShardService:
         self,
         generation_id: str,
         shards: tuple[GenerationShard, ...],
-        batch,
+        *,
+        batch: MetadataBatch,
     ) -> GenerationShardSet:
         """Stage one complete shard set for a Generation in ENCODING state."""
         if not isinstance(generation_id, str) or not generation_id.strip():

@@ -1,8 +1,19 @@
+from __future__ import annotations
+
 from dataclasses import replace
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from ..models import Generation, GenerationStatus
 from ._availability import ShardAvailabilitySnapshot
+
+if TYPE_CHECKING:
+    from ...database.batch import MetadataBatch
+    from ..repositories import (
+        GenerationManifestEntryRepository,
+        GenerationManifestRepository,
+        GenerationRepository,
+        GenerationShardRepository,
+    )
 
 
 class GenerationLifecycleError(Exception):
@@ -51,10 +62,10 @@ class GenerationLifecycleService:
 
     def __init__(
         self,
-        generation_repository,
-        manifest_repository,
-        manifest_entry_repository,
-        shard_repository,
+        generation_repository: GenerationRepository,
+        manifest_repository: GenerationManifestRepository,
+        manifest_entry_repository: GenerationManifestEntryRepository,
+        shard_repository: GenerationShardRepository,
         *,
         clock: Callable[[], int] | None = None,
     ):
@@ -85,7 +96,7 @@ class GenerationLifecycleService:
         generation = self.get(generation_id)
         return None if generation is None else generation.status
 
-    def create(self, generation: Generation, batch) -> None:
+    def create(self, generation: Generation, *, batch: MetadataBatch) -> None:
         if not isinstance(generation, Generation):
             raise TypeError("generation must be a Generation")
         if batch is None:
@@ -107,7 +118,9 @@ class GenerationLifecycleService:
             raise GenerationAlreadyExistsError(generation.generation_id)
         self._generations.put(generation, batch)
 
-    def seal(self, generation_id: str, expected_updated_at: int, batch) -> Generation:
+    def seal(
+        self, generation_id: str, expected_updated_at: int, *, batch: MetadataBatch
+    ) -> Generation:
         current = self._load_for_transition(
             generation_id, expected_updated_at, GenerationStatus.SEALED, batch
         )
@@ -130,7 +143,7 @@ class GenerationLifecycleService:
         )
 
     def start_encoding(
-        self, generation_id: str, expected_updated_at: int, batch
+        self, generation_id: str, expected_updated_at: int, *, batch: MetadataBatch
     ) -> Generation:
         current = self._load_for_transition(
             generation_id, expected_updated_at, GenerationStatus.ENCODING, batch
@@ -141,7 +154,7 @@ class GenerationLifecycleService:
         )
 
     def mark_encoded(
-        self, generation_id: str, expected_updated_at: int, batch
+        self, generation_id: str, expected_updated_at: int, *, batch: MetadataBatch
     ) -> Generation:
         current = self._load_for_transition(
             generation_id, expected_updated_at, GenerationStatus.ENCODED, batch
@@ -164,7 +177,7 @@ class GenerationLifecycleService:
         )
 
     def start_storing(
-        self, generation_id: str, expected_updated_at: int, batch
+        self, generation_id: str, expected_updated_at: int, *, batch: MetadataBatch
     ) -> Generation:
         current = self._load_for_transition(
             generation_id, expected_updated_at, GenerationStatus.STORING, batch
@@ -176,7 +189,12 @@ class GenerationLifecycleService:
         )
 
     def mark_available(
-        self, generation_id: str, expected_updated_at: int, availability, batch
+        self,
+        generation_id: str,
+        expected_updated_at: int,
+        availability: ShardAvailabilitySnapshot,
+        *,
+        batch: MetadataBatch,
     ) -> Generation:
         return self._mark_availability(
             generation_id,
@@ -187,7 +205,12 @@ class GenerationLifecycleService:
         )
 
     def mark_degraded(
-        self, generation_id: str, expected_updated_at: int, availability, batch
+        self,
+        generation_id: str,
+        expected_updated_at: int,
+        availability: ShardAvailabilitySnapshot,
+        *,
+        batch: MetadataBatch,
     ) -> Generation:
         return self._mark_availability(
             generation_id,
@@ -198,7 +221,12 @@ class GenerationLifecycleService:
         )
 
     def mark_lost(
-        self, generation_id: str, expected_updated_at: int, availability, batch
+        self,
+        generation_id: str,
+        expected_updated_at: int,
+        availability: ShardAvailabilitySnapshot,
+        *,
+        batch: MetadataBatch,
     ) -> Generation:
         return self._mark_availability(
             generation_id,
@@ -209,7 +237,7 @@ class GenerationLifecycleService:
         )
 
     def mark_failed(
-        self, generation_id: str, expected_updated_at: int, batch
+        self, generation_id: str, expected_updated_at: int, *, batch: MetadataBatch
     ) -> Generation:
         current = self.require(generation_id)
         self._check_version(current, expected_updated_at)

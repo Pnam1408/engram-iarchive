@@ -3,6 +3,7 @@ from uuid import uuid4
 import pytest
 
 from engram.metadata.database import MetadataDB
+from engram.metadata.database.batch import MetadataBatch
 from engram.metadata.logical.models import (
     Chunk,
     ChunkRef,
@@ -16,7 +17,12 @@ from engram.metadata.logical.repositories import (
     ObjectRepository,
     VersionDeltaRepository,
     VersionRepository,
+    ObjectChunkIndexRepository,
 )
+from engram.metadata.logical.repositories.checkpoint_entries import (
+    CheckpointEntryRepository,
+)
+from engram.metadata.logical.repositories.checkpoints import CheckpointRepository
 from engram.metadata.logical.services import (
     Canonicalizer,
     Ed25519VersionSigner,
@@ -25,6 +31,8 @@ from engram.metadata.logical.services import (
     ObjectChunkIndexTargetError,
     OrderKeyService,
 )
+from engram.metadata.logical.services.checkpoint import CheckpointService
+from engram.metadata.logical.services.delta_applier import DeltaApplier
 
 
 @pytest.fixture
@@ -105,24 +113,62 @@ def seed_one_version(db, *, corrupt_delta_root=False):
 
 def test_reconstruct_replays_from_version_one_without_checkpoint(db):
     obj, version, _, ref = seed_one_version(db)
-    result = ObjectChunkIndexRebuilder(db).reconstruct(obj.object_id, 1)
+    checkpoint = CheckpointService(
+        ObjectRepository(db),
+        VersionRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        CheckpointEntryRepository(db),
+        ChunkRepository(db),
+    )
+    service = ObjectChunkIndexRebuilder(
+        ObjectRepository(db),
+        VersionRepository(db),
+        VersionDeltaRepository(db),
+        ChunkRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        checkpoint_service=checkpoint,
+        canonicalizer=Canonicalizer(),
+        delta_applier=DeltaApplier(),
+    )
+    result = service.reconstruct(obj.object_id, 1)
 
     assert result.sequence == 1
     assert result.version_id == version.version_id
     assert result.refs == (ref,)
     assert result.checkpoint_sequence == 0
     assert result.replayed_versions == 1
-    assert result.persisted is False
+    assert result.staged is False
 
 
 def test_rebuild_current_replaces_stale_index_sequence(db):
     obj, _, _, ref = seed_one_version(db)
-    result = ObjectChunkIndexRebuilder(db).rebuild_current(obj.object_id)
-
-    from engram.metadata.logical.repositories import ObjectChunkIndexRepository
-
     index = ObjectChunkIndexRepository(db)
-    assert result.persisted is True
+    checkpoint = CheckpointService(
+        ObjectRepository(db),
+        VersionRepository(db),
+        index,
+        CheckpointRepository(db),
+        CheckpointEntryRepository(db),
+        ChunkRepository(db),
+    )
+    service = ObjectChunkIndexRebuilder(
+        ObjectRepository(db),
+        VersionRepository(db),
+        VersionDeltaRepository(db),
+        ChunkRepository(db),
+        index,
+        CheckpointRepository(db),
+        checkpoint_service=checkpoint,
+        canonicalizer=Canonicalizer(),
+        delta_applier=DeltaApplier(),
+    )
+    batch = MetadataBatch(db)
+    result = service.stage_rebuild_current(obj.object_id, batch=batch)
+
+    assert result.staged is True
+    batch.commit()
     assert index.get_sequence(obj.object_id) == 1
     assert index.list_for_object(obj.object_id) == (ref,)
 
@@ -130,14 +176,54 @@ def test_rebuild_current_replaces_stale_index_sequence(db):
 def test_reconstruct_rejects_delta_commitment_mismatch(db):
     obj, _, _, _ = seed_one_version(db, corrupt_delta_root=True)
 
+    checkpoint = CheckpointService(
+        ObjectRepository(db),
+        VersionRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        CheckpointEntryRepository(db),
+        ChunkRepository(db),
+    )
+    service = ObjectChunkIndexRebuilder(
+        ObjectRepository(db),
+        VersionRepository(db),
+        VersionDeltaRepository(db),
+        ChunkRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        checkpoint_service=checkpoint,
+        canonicalizer=Canonicalizer(),
+        delta_applier=DeltaApplier(),
+    )
+
     with pytest.raises(ObjectChunkIndexHistoryError, match="delta_root mismatch"):
-        ObjectChunkIndexRebuilder(db).reconstruct(obj.object_id, 1)
+        service.reconstruct(obj.object_id, 1)
 
 
 def test_reconstruct_rejects_target_after_head(db):
     obj, _, _, _ = seed_one_version(db)
 
+    checkpoint = CheckpointService(
+        ObjectRepository(db),
+        VersionRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        CheckpointEntryRepository(db),
+        ChunkRepository(db),
+    )
+    service = ObjectChunkIndexRebuilder(
+        ObjectRepository(db),
+        VersionRepository(db),
+        VersionDeltaRepository(db),
+        ChunkRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        checkpoint_service=checkpoint,
+        canonicalizer=Canonicalizer(),
+        delta_applier=DeltaApplier(),
+    )
+
     with pytest.raises(ValueError, match="target_sequence"):
-        ObjectChunkIndexRebuilder(db).reconstruct(obj.object_id, -1)
+        service.reconstruct(obj.object_id, -1)
     with pytest.raises(ObjectChunkIndexTargetError, match="exceeds Object Head"):
-        ObjectChunkIndexRebuilder(db).reconstruct(obj.object_id, 2)
+        service.reconstruct(obj.object_id, 2)

@@ -4,6 +4,7 @@ import pytest
 from fractional_indexing import generate_key_between
 
 from engram.metadata.database import MetadataDB
+from engram.metadata.database.batch import MetadataBatch
 from engram.metadata.logical.models import Chunk, Object, Version, ChunkRef
 from engram.metadata.logical.repositories import (
     ObjectRepository,
@@ -73,8 +74,17 @@ def test_checkpoint_service_creates_and_verifies_snapshot(db):
         str(uuid4()), str(uuid4()), generate_key_between(ref1.order_key, None)
     )
     obj, version = seed_head(db, (ref1, ref2))
-    service = CheckpointService(db)
-    checkpoint = service.create_for_head(obj.object_id, created_at=200)
+    service = CheckpointService(
+        ObjectRepository(db),
+        VersionRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        CheckpointEntryRepository(db),
+        ChunkRepository(db),
+    )
+    batch = MetadataBatch(db)
+    checkpoint = service.create_for_head(obj.object_id, created_at=200, batch=batch)
+    batch.commit()
     entries = service.verify(checkpoint)
     assert checkpoint.sequence == 1
     assert checkpoint.version_id == version.version_id
@@ -87,14 +97,32 @@ def test_checkpoint_service_creates_and_verifies_snapshot(db):
 
 def test_checkpoint_service_supports_empty_object_snapshot(db):
     obj, _ = seed_head(db, ())
-    checkpoint = CheckpointService(db).create_for_head(obj.object_id, created_at=200)
+    service = CheckpointService(
+        ObjectRepository(db),
+        VersionRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        CheckpointEntryRepository(db),
+        ChunkRepository(db),
+    )
+    batch = MetadataBatch(db)
+    checkpoint = service.create_for_head(obj.object_id, created_at=200, batch=batch)
+    batch.commit()
     assert checkpoint.entry_count == 0
-    assert CheckpointService(db).verify(checkpoint) == ()
+    assert service.verify(checkpoint) == ()
 
 
 def test_checkpoint_service_rejects_unsynchronized_index(db):
     obj, _ = seed_head(db, ())
     index = ObjectChunkIndexRepository(db)
+    service = CheckpointService(
+        ObjectRepository(db),
+        VersionRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        CheckpointEntryRepository(db),
+        ChunkRepository(db),
+    )
     with db.batch() as batch:
         # Force an index state marker that no longer represents Object Head.
         batch.put(
@@ -106,13 +134,22 @@ def test_checkpoint_service_rejects_unsynchronized_index(db):
         )
         batch.commit()
     with pytest.raises(CheckpointHeadMismatchError):
-        CheckpointService(db).create_for_head(obj.object_id, created_at=200)
+        service.create_for_head(obj.object_id, created_at=200, batch=MetadataBatch(db))
 
 
 def test_checkpoint_verifier_rejects_snapshot_tampering(db):
     obj, _ = seed_head(db, ())
-    service = CheckpointService(db)
-    checkpoint = service.create_for_head(obj.object_id, created_at=200)
+    service = CheckpointService(
+        ObjectRepository(db),
+        VersionRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        CheckpointEntryRepository(db),
+        ChunkRepository(db),
+    )
+    batch = MetadataBatch(db)
+    checkpoint = service.create_for_head(obj.object_id, created_at=200, batch=batch)
+    batch.commit()
     repo = CheckpointEntryRepository(db)
     entries = repo.list_for_checkpoint(checkpoint)
     bad = type(checkpoint)(
@@ -130,8 +167,17 @@ def test_checkpoint_verifier_rejects_snapshot_tampering(db):
 
 def test_checkpoint_service_latest_valid_before(db):
     obj, _ = seed_head(db, ())
-    service = CheckpointService(db)
-    cp1 = service.create_for_head(obj.object_id, created_at=200)
+    service = CheckpointService(
+        ObjectRepository(db),
+        VersionRepository(db),
+        ObjectChunkIndexRepository(db),
+        CheckpointRepository(db),
+        CheckpointEntryRepository(db),
+        ChunkRepository(db),
+    )
+    batch = MetadataBatch(db)
+    cp1 = service.create_for_head(obj.object_id, created_at=200, batch=batch)
+    batch.commit()
     found = service.latest_valid_before(obj.object_id, 1)
     assert found is not None
     assert found[0] == cp1

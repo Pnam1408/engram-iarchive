@@ -1,4 +1,16 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from ..models import ReceiptType, StorageReceipt
+
+if TYPE_CHECKING:
+    from ...database.batch import MetadataBatch
+    from ..repositories import (
+        GenerationShardRepository,
+        ShardPlacementRepository,
+        StorageReceiptRepository,
+    )
 
 
 class StorageReceiptServiceError(Exception):
@@ -32,9 +44,9 @@ class StorageReceiptService:
 
     def __init__(
         self,
-        shard_placement_repository,
-        generation_shard_repository,
-        storage_receipt_repository,
+        shard_placement_repository: ShardPlacementRepository,
+        generation_shard_repository: GenerationShardRepository,
+        storage_receipt_repository: StorageReceiptRepository,
     ) -> None:
         for name, repository in (
             ("shard_placement_repository", shard_placement_repository),
@@ -47,7 +59,9 @@ class StorageReceiptService:
         self._shards = generation_shard_repository
         self._receipts = storage_receipt_repository
 
-    def register(self, receipt: StorageReceipt, batch) -> StorageReceipt:
+    def register(
+        self, receipt: StorageReceipt, *, batch: MetadataBatch
+    ) -> StorageReceipt:
         if not isinstance(receipt, StorageReceipt):
             raise TypeError("receipt must be a StorageReceipt")
         if batch is None:

@@ -79,7 +79,7 @@ def test_register_stages_placement_when_it_matches_persisted_entry(setup):
     service, _, _, repository, _, entry, placement = setup
     batch = Batch()
 
-    result = service.register(placement, entry, batch)
+    result = service.register(placement, entry, batch=batch)
 
     assert result == placement
     assert repository.staged == [(placement, batch)]
@@ -96,7 +96,7 @@ def test_register_requires_existing_generation(setup):
         placement.created_at,
     )
     with pytest.raises(ChunkPlacementGenerationNotFoundError):
-        service.register(missing, entry, Batch())
+        service.register(missing, entry, batch=Batch())
     assert not repository.staged
 
 
@@ -106,7 +106,7 @@ def test_register_only_while_generation_open(setup):
         gid, 2, 4, GenerationStatus.SEALED, 10, 11, sealed_at=11
     )
     with pytest.raises(ChunkPlacementPreconditionError):
-        service.register(placement, entry, Batch())
+        service.register(placement, entry, batch=Batch())
     assert not repository.staged
 
 
@@ -121,7 +121,7 @@ def test_register_rejects_placement_that_does_not_match_entry(setup):
         placement.created_at,
     )
     with pytest.raises(ChunkPlacementPreconditionError):
-        service.register(wrong, entry, Batch())
+        service.register(wrong, entry, batch=Batch())
     assert not repository.staged
 
 
@@ -130,7 +130,7 @@ def test_register_accepts_entry_staged_in_same_caller_batch(setup):
     entries.items[gid] = ()  # Not visible yet: it is expected to be in caller batch.
     batch = Batch()
 
-    service.register(placement, entry, batch)
+    service.register(placement, entry, batch=batch)
 
     assert repository.staged == [(placement, batch)]
 
@@ -147,7 +147,7 @@ def test_register_rejects_duplicate_chunk_placement_in_same_generation(setup):
     )
     repository.items[other.placement_id] = other
     with pytest.raises(ChunkPlacementAlreadyRegisteredError):
-        service.register(placement, entry, Batch())
+        service.register(placement, entry, batch=Batch())
     assert not repository.staged
 
 
@@ -168,7 +168,7 @@ def test_same_chunk_may_have_placement_in_another_generation(setup):
     repository.items[other.placement_id] = other
 
     batch = Batch()
-    service.register(placement, entry, batch)
+    service.register(placement, entry, batch=batch)
 
     assert repository.staged == [(placement, batch)]
 

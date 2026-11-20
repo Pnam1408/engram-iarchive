@@ -1,5 +1,7 @@
+from __future__ import annotations
+
 from dataclasses import replace
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from ..models import (
     GenerationStatus,
@@ -9,7 +11,15 @@ from ..models import (
     StorageReceipt,
 )
 from ._availability import ShardAvailabilitySnapshot
-from .storage_receipt import StorageReceiptIntegrityError, StorageReceiptService
+from .storage_receipt import StorageReceiptService, StorageReceiptServiceError
+
+if TYPE_CHECKING:
+    from ...database.batch import MetadataBatch
+    from ..repositories import (
+        GenerationRepository,
+        GenerationShardRepository,
+        ShardPlacementRepository,
+    )
 
 
 class ShardPlacementServiceError(Exception):
@@ -45,10 +55,10 @@ class ShardPlacementService:
 
     def __init__(
         self,
-        generation_repository,
-        generation_shard_repository,
-        shard_placement_repository,
-        storage_receipt_repository,
+        generation_repository: GenerationRepository,
+        generation_shard_repository: GenerationShardRepository,
+        shard_placement_repository: ShardPlacementRepository,
+        storage_receipt_service: StorageReceiptService,
         *,
         clock: Callable[[], int] | None = None,
     ) -> None:
@@ -56,22 +66,19 @@ class ShardPlacementService:
             ("generation_repository", generation_repository),
             ("generation_shard_repository", generation_shard_repository),
             ("shard_placement_repository", shard_placement_repository),
-            ("storage_receipt_repository", storage_receipt_repository),
+            ("storage_receipt_service", storage_receipt_service),
         ):
             if repository is None:
                 raise TypeError(f"{name} is required")
         self._generations = generation_repository
         self._shards = generation_shard_repository
         self._placements = shard_placement_repository
-        self._receipts = storage_receipt_repository
-        self._receipt_service = StorageReceiptService(
-            shard_placement_repository,
-            generation_shard_repository,
-            storage_receipt_repository,
-        )
+        self._receipt_service = storage_receipt_service
         self._clock = clock or (lambda: __import__("time").time_ns() // 1_000_000)
 
-    def register(self, placement: ShardPlacement, batch) -> ShardPlacement:
+    def register(
+        self, placement: ShardPlacement, *, batch: MetadataBatch
+    ) -> ShardPlacement:
         if not isinstance(placement, ShardPlacement):
             raise TypeError("placement must be a ShardPlacement")
         if batch is None:
@@ -111,15 +118,22 @@ class ShardPlacementService:
         placement_id: str,
         receipt: StorageReceipt,
         expected_updated_at: int,
-        batch,
+        *,
+        batch: MetadataBatch,
     ) -> ShardPlacement:
         current = self._load_for_transition(
             placement_id, expected_updated_at, {PlacementStatus.PENDING}
         )
         self._require_shard(current)
+        if not isinstance(receipt, StorageReceipt):
+            raise TypeError("receipt must be a StorageReceipt")
+        if receipt.receipt_type is not ReceiptType.STORAGE_ACK:
+            raise ShardPlacementPreconditionError(
+                "mark_stored requires a STORAGE_ACK receipt"
+            )
         try:
-            self._receipt_service.register(receipt, batch)
-        except StorageReceiptIntegrityError as exc:
+            self._receipt_service.register(receipt, batch=batch)
+        except StorageReceiptServiceError as exc:
             raise ShardPlacementIntegrityError(str(exc)) from exc
         now = max(self._now(), current.updated_at + 1, receipt.issued_at)
         updated = replace(
@@ -136,20 +150,27 @@ class ShardPlacementService:
         placement_id: str,
         receipt: StorageReceipt,
         expected_updated_at: int,
-        batch,
+        *,
+        batch: MetadataBatch,
     ) -> ShardPlacement:
         current = self._load_for_transition(
             placement_id, expected_updated_at, {PlacementStatus.STORED}
         )
         self._require_shard(current)
+        if not isinstance(receipt, StorageReceipt):
+            raise TypeError("receipt must be a StorageReceipt")
+        if receipt.receipt_type is not ReceiptType.STORAGE_VERIFICATION:
+            raise ShardPlacementPreconditionError(
+                "mark_verified requires a STORAGE_VERIFICATION receipt"
+            )
         receipts = self._receipt_service.list_for_placement(placement_id)
         if not any(item.receipt_type is ReceiptType.STORAGE_ACK for item in receipts):
             raise ShardPlacementIntegrityError(
                 "STORED Placement has no persisted STORAGE_ACK"
             )
         try:
-            self._receipt_service.register(receipt, batch)
-        except StorageReceiptIntegrityError as exc:
+            self._receipt_service.register(receipt, batch=batch)
+        except StorageReceiptServiceError as exc:
             raise ShardPlacementIntegrityError(str(exc)) from exc
         now = max(self._now(), current.updated_at + 1, receipt.issued_at)
         updated = replace(
@@ -162,7 +183,7 @@ class ShardPlacementService:
         return updated
 
     def mark_failed(
-        self, placement_id: str, expected_updated_at: int, batch
+        self, placement_id: str, expected_updated_at: int, *, batch: MetadataBatch
     ) -> ShardPlacement:
         current = self._load_for_transition(
             placement_id,
@@ -175,7 +196,7 @@ class ShardPlacementService:
         )
 
     def mark_lost(
-        self, placement_id: str, expected_updated_at: int, batch
+        self, placement_id: str, expected_updated_at: int, *, batch: MetadataBatch
     ) -> ShardPlacement:
         current = self._load_for_transition(
             placement_id,
@@ -211,8 +232,12 @@ class ShardPlacementService:
                 raise ShardPlacementIntegrityError(
                     "Placement index returned an inconsistent record"
                 )
-            if any(item.status is PlacementStatus.VERIFIED for item in placements):
-                verified.add(shard.shard_index)
+            for item in placements:
+                if item.status is PlacementStatus.VERIFIED:
+                    # Availability is a trust boundary: never count a status flag
+                    # without validating its persisted receipt evidence.
+                    self.validate(item.placement_id)
+                    verified.add(shard.shard_index)
         return ShardAvailabilitySnapshot(generation_id, frozenset(verified))
 
     def validate(self, placement_id: str) -> bool:
