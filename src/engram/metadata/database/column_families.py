@@ -13,8 +13,22 @@ class ColumnFamily(str, Enum):
     CHECKPOINT_ENTRIES = "checkpoint_entries"
     MMR = "mmr"
 
-    # Physical Metadata - retained during transition
+    # Physical Metadata
     GENERATIONS = "generations"
+    GENERATION_MANIFESTS = "generation_manifests"
+    GENERATION_MANIFEST_ENTRIES = "generation_manifest_entries"
+    GENERATION_SHARDS = "generation_shards"
+
+    CHUNK_PLACEMENTS = "chunk_placements"
+    CHUNK_PLACEMENT_INDEX = "chunk_placement_index"
+
+    SHARD_PLACEMENTS = "shard_placements"
+    SHARD_PLACEMENT_INDEX = "shard_placement_index"
+
+    STORAGE_RECEIPTS = "storage_receipts"
+    STORAGE_RECEIPT_INDEX = "storage_receipt_index"
+
+    # Legacy Physical Metadata - retained during transition
     GENERATION_CHUNKS = "generation_chunks"
     SHARDS = "shards"
 
