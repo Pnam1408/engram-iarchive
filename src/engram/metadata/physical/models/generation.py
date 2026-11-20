@@ -30,6 +30,7 @@ class Generation:
 
     sealed_at: int | None = None
     encoded_at: int | None = None
+    completed_at: int | None = None
 
     def __post_init__(self) -> None:
         validate_uuid(self.generation_id, "generation_id")
@@ -59,7 +60,11 @@ class Generation:
                 raise ValueError("encoded_at must not be earlier than sealed_at")
 
         if self.status is GenerationStatus.OPEN:
-            if self.sealed_at is not None or self.encoded_at is not None:
+            if (
+                self.sealed_at is not None
+                or self.encoded_at is not None
+                or self.completed_at is not None
+            ):
                 raise ValueError(
                     "An OPEN Generation must not have lifecycle timestamps"
                 )
@@ -84,8 +89,33 @@ class Generation:
             ):
                 raise ValueError("encoded_at is required for this Generation status")
 
+        if self.completed_at is not None:
+            validate_timestamp(self.completed_at, "completed_at")
+            if self.completed_at < self.created_at:
+                raise ValueError("completed_at must not be earlier than created_at")
+            if self.status not in {
+                GenerationStatus.AVAILABLE,
+                GenerationStatus.DEGRADED,
+                GenerationStatus.FAILED,
+                GenerationStatus.LOST,
+            }:
+                raise ValueError(
+                    "completed_at is only allowed after initial completion"
+                )
+        elif self.status in {
+            GenerationStatus.AVAILABLE,
+            GenerationStatus.DEGRADED,
+            GenerationStatus.FAILED,
+            GenerationStatus.LOST,
+        }:
+            raise ValueError(
+                "completed_at is required for completed Generation statuses"
+            )
+
         lifecycle_times = [
-            value for value in (self.sealed_at, self.encoded_at) if value is not None
+            value
+            for value in (self.sealed_at, self.encoded_at, self.completed_at)
+            if value is not None
         ]
         if lifecycle_times and self.updated_at < max(lifecycle_times):
             raise ValueError("updated_at must not be earlier than lifecycle timestamps")

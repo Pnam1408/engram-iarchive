@@ -16,6 +16,7 @@ class GenerationRepository(BaseRepository):
         "updated_at",
         "sealed_at",
         "encoded_at",
+        "completed_at",
     }
     _IMMUTABLE_FIELDS = (
         "generation_id",
@@ -35,6 +36,7 @@ class GenerationRepository(BaseRepository):
             "updated_at": generation.updated_at,
             "sealed_at": generation.sealed_at,
             "encoded_at": generation.encoded_at,
+            "completed_at": generation.completed_at,
         }
 
     @classmethod

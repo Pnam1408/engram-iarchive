@@ -13,6 +13,7 @@ def make_generation(**overrides):
         "status": GenerationStatus.OPEN,
         "created_at": 100,
         "updated_at": 100,
+        "completed_at": None,
     }
     values.update(overrides)
     return Generation(**values)
@@ -55,7 +56,9 @@ def test_encoded_generation_accepts_consistent_timestamps():
 
 
 def test_failed_generation_may_fail_before_sealing():
-    generation = make_generation(status=GenerationStatus.FAILED, updated_at=105)
+    generation = make_generation(
+        status=GenerationStatus.FAILED, updated_at=105, completed_at=105
+    )
     assert generation.sealed_at is None
 
 
