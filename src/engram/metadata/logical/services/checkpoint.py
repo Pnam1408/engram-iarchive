@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from uuid import uuid4
 
 from ..models import Checkpoint, CheckpointEntry, ChunkRef, Version
+from engram.commitment.snapshot import SnapshotCommitmentService
 from ..repositories import (
     ObjectRepository,
     VersionRepository,
@@ -14,7 +15,6 @@ from ..repositories import (
 )
 from ...database import MetadataBatch
 from ...repositories import CorruptMetadataError
-from .canonicalizer import Canonicalizer
 
 
 class CheckpointError(Exception):
@@ -42,8 +42,8 @@ class CheckpointBuildResult:
 class CheckpointBuilder:
     """Pure builder that converts an ordered ChunkRef state into a Checkpoint."""
 
-    def __init__(self, canonicalizer: Canonicalizer | None = None) -> None:
-        self._canonicalizer = canonicalizer or Canonicalizer()
+    def __init__(self, commitment: SnapshotCommitmentService | None = None) -> None:
+        self._commitment = commitment or SnapshotCommitmentService()
 
     def build(
         self,
@@ -74,11 +74,11 @@ class CheckpointBuilder:
             )
             for ref in ordered
         )
-        root = self._canonicalizer.hash_snapshot(
+        root = self._commitment.compute_snapshot_root(
             object_id=object_id,
             sequence=sequence,
             version_id=version_id,
-            entries=entries,
+            chunk_refs=ordered,
         )
         checkpoint = Checkpoint(
             checkpoint_id=cp_id,
@@ -95,8 +95,8 @@ class CheckpointBuilder:
 class CheckpointVerifier:
     """Verifies Checkpoint snapshot commitment and optional Version binding."""
 
-    def __init__(self, canonicalizer: Canonicalizer | None = None) -> None:
-        self._canonicalizer = canonicalizer or Canonicalizer()
+    def __init__(self, commitment: SnapshotCommitmentService | None = None) -> None:
+        self._commitment = commitment or SnapshotCommitmentService()
 
     def verify(
         self,
@@ -126,18 +126,27 @@ class CheckpointVerifier:
                 raise CheckpointVerificationError(
                     "Checkpoint does not reference the supplied Version"
                 )
+        refs = tuple(
+            ChunkRef(
+                chunk_ref_id=entry.chunk_ref_id,
+                chunk_id=entry.chunk_id,
+                order_key=entry.order_key,
+            )
+            for entry in entries
+        )
         try:
-            root = self._canonicalizer.hash_snapshot(
+            valid = self._commitment.verify_snapshot(
                 object_id=checkpoint.object_id,
                 sequence=checkpoint.sequence,
                 version_id=checkpoint.version_id,
-                entries=entries,
+                chunk_refs=refs,
+                expected_root=checkpoint.snapshot_root,
             )
         except Exception as exc:
             raise CheckpointVerificationError(
-                "Cannot canonicalize Checkpoint snapshot"
+                "Cannot verify Checkpoint snapshot commitment"
             ) from exc
-        if root != checkpoint.snapshot_root:
+        if not valid:
             raise CheckpointVerificationError("Checkpoint snapshot_root mismatch")
 
 
@@ -160,7 +169,7 @@ class CheckpointService:
         *,
         builder: CheckpointBuilder | None = None,
         verifier: CheckpointVerifier | None = None,
-        canonicalizer: Canonicalizer | None = None,
+        commitment: SnapshotCommitmentService | None = None,
         verify_chunk_catalog: bool = True,
     ) -> None:
         self._objects = objects
@@ -169,9 +178,9 @@ class CheckpointService:
         self._checkpoints = checkpoints
         self._entries = entries
         self._chunks = chunks
-        self._canonicalizer = canonicalizer or Canonicalizer()
-        self._builder = builder or CheckpointBuilder(self._canonicalizer)
-        self._verifier = verifier or CheckpointVerifier(self._canonicalizer)
+        self._commitment = commitment or SnapshotCommitmentService()
+        self._builder = builder or CheckpointBuilder(self._commitment)
+        self._verifier = verifier or CheckpointVerifier(self._commitment)
         self._verify_chunk_catalog = verify_chunk_catalog
 
     def create_for_head(

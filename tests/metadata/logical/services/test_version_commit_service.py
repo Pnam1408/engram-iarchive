@@ -4,7 +4,13 @@ from uuid import uuid4
 import pytest
 
 from engram.metadata.database import MetadataDB
-from engram.metadata.logical.models import Object, Version, Chunk, ChunkRef, VersionDelta
+from engram.metadata.logical.models import (
+    Object,
+    Version,
+    Chunk,
+    ChunkRef,
+    VersionDelta,
+)
 from engram.metadata.logical.repositories import (
     ObjectRepository,
     VersionRepository,
@@ -13,7 +19,6 @@ from engram.metadata.logical.repositories import (
     ObjectChunkIndexRepository,
 )
 from engram.metadata.logical.services import (
-    Canonicalizer,
     Ed25519VersionSigner,
     VersionBuilder,
     VersionBuildResult,
@@ -210,7 +215,6 @@ def test_two_concurrent_commits_for_same_head_only_one_succeeds(db):
     assert len(VersionRepository(db).list_versions(obj.object_id)) == 1
 
 
-
 def test_commit_atomically_updates_object_chunk_index_with_three_other_records(db):
     from engram.metadata.logical.models import ChunkRef, VersionDelta
 
@@ -219,9 +223,7 @@ def test_commit_atomically_updates_object_chunk_index_with_three_other_records(d
     chunk_ref = ChunkRef(
         chunk_ref_id=str(uuid4()),
         chunk_id=chunk_id,
-        order_key=__import__(
-            "fractional_indexing"
-        ).generate_key_between(None, None),
+        order_key=__import__("fractional_indexing").generate_key_between(None, None),
     )
     with db.batch() as batch:
         ChunkRepository(db).put(
@@ -259,7 +261,9 @@ def test_commit_atomically_updates_object_chunk_index_with_three_other_records(d
 
     assert VersionRepository(db).get(obj.object_id, 1) == committed
     assert VersionDeltaRepository(db).get(obj.object_id, 1) == delta
-    assert ObjectRepository(db).get(obj.object_id).head_version_id == committed.version_id
+    assert (
+        ObjectRepository(db).get(obj.object_id).head_version_id == committed.version_id
+    )
     assert ObjectChunkIndexRepository(db).get_sequence(obj.object_id) == 1
     assert ObjectChunkIndexRepository(db).list_for_object(obj.object_id) == (chunk_ref,)
 
@@ -269,9 +273,7 @@ def test_commit_missing_chunk_catalog_does_not_commit_any_of_four_records(db):
     chunk_ref = ChunkRef(
         chunk_ref_id=str(uuid4()),
         chunk_id=str(uuid4()),
-        order_key=__import__(
-            "fractional_indexing"
-        ).generate_key_between(None, None),
+        order_key=__import__("fractional_indexing").generate_key_between(None, None),
     )
     delta = VersionDelta(
         object_id=obj.object_id,

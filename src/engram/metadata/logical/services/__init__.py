@@ -1,4 +1,3 @@
-from .canonicalizer import Canonicalizer, CanonicalizationError
 from .delta_applier import (
     DeltaApplier,
     DeltaApplyError,
@@ -66,8 +65,6 @@ __all__ = [
     "DeltaApplyError",
     "InvalidCurrentStateError",
     "InvalidDeltaError",
-    "Canonicalizer",
-    "CanonicalizationError",
     "VersionBuilder",
     "VersionBuildResult",
     "VersionBuildError",

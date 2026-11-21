@@ -302,10 +302,7 @@ class ObjectChunkIndexRebuilder:
             raise ObjectChunkIndexHistoryError(
                 "Checkpoint Version parent is missing or inconsistent"
             )
-        if (
-            self._commitments.compute_manifest_hash(parent)
-            != version.previous_version_hash
-        ):
+        if self._commitments.compute_manifest_hash(parent) != version.previous_version_hash:
             raise ObjectChunkIndexHistoryError(
                 "Checkpoint Version previous_version_hash mismatch"
             )
