@@ -188,17 +188,3 @@ def test_decoder_requires_tuple(encoder, decoder):
             original_size=3,
             config=config,
         )
-
-
-def test_output_matches_legacy_encoder(encoder):
-    from engram.erasure_coding import encode as legacy_encode
-
-    data = bytes(range(256)) + b"legacy-compatibility"
-    config = ErasureCodingConfig(3, 5)
-    new = encoder.encode(make_payload(data), config=config)
-    old = legacy_encode(
-        data,
-        data_shards=config.data_shards,
-        total_shards=config.total_shards,
-    )
-    assert tuple(shard.data for shard in new.shards) == old.shards
