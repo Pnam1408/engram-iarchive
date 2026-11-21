@@ -24,7 +24,6 @@ from engram.metadata.logical.repositories.checkpoint_entries import (
 )
 from engram.metadata.logical.repositories.checkpoints import CheckpointRepository
 from engram.metadata.logical.services import (
-    Canonicalizer,
     Ed25519VersionSigner,
     ObjectChunkIndexRebuilder,
     ObjectChunkIndexHistoryError,
@@ -33,6 +32,7 @@ from engram.metadata.logical.services import (
 )
 from engram.metadata.logical.services.checkpoint import CheckpointService
 from engram.metadata.logical.services.delta_applier import DeltaApplier
+from engram.commitment.version import DeltaCanonicalizer, VersionCanonicalizer
 
 
 @pytest.fixture
@@ -60,8 +60,7 @@ def seed_one_version(db, *, corrupt_delta_root=False):
         removed_chunk_ref_ids=(),
         created_at=2,
     )
-    canonicalizer = Canonicalizer()
-    delta_root = canonicalizer.hash_delta(delta)
+    delta_root = DeltaCanonicalizer.hash(delta)
     if corrupt_delta_root:
         delta_root = b"x" * 32
     unsigned = UnsignedVersion(
@@ -75,7 +74,7 @@ def seed_one_version(db, *, corrupt_delta_root=False):
         writer_public_key=signer.public_key,
         created_at=2,
     )
-    signature = signer.sign(canonicalizer.encode_version_signing_payload(unsigned))
+    signature = signer.sign(VersionCanonicalizer.hash(unsigned))
     version = Version(
         version_id=version_id,
         object_id=object_id,
@@ -129,7 +128,6 @@ def test_reconstruct_replays_from_version_one_without_checkpoint(db):
         ObjectChunkIndexRepository(db),
         CheckpointRepository(db),
         checkpoint_service=checkpoint,
-        canonicalizer=Canonicalizer(),
         delta_applier=DeltaApplier(),
     )
     result = service.reconstruct(obj.object_id, 1)
@@ -161,7 +159,6 @@ def test_rebuild_current_replaces_stale_index_sequence(db):
         index,
         CheckpointRepository(db),
         checkpoint_service=checkpoint,
-        canonicalizer=Canonicalizer(),
         delta_applier=DeltaApplier(),
     )
     batch = MetadataBatch(db)
@@ -192,7 +189,6 @@ def test_reconstruct_rejects_delta_commitment_mismatch(db):
         ObjectChunkIndexRepository(db),
         CheckpointRepository(db),
         checkpoint_service=checkpoint,
-        canonicalizer=Canonicalizer(),
         delta_applier=DeltaApplier(),
     )
 
@@ -219,7 +215,6 @@ def test_reconstruct_rejects_target_after_head(db):
         ObjectChunkIndexRepository(db),
         CheckpointRepository(db),
         checkpoint_service=checkpoint,
-        canonicalizer=Canonicalizer(),
         delta_applier=DeltaApplier(),
     )
 

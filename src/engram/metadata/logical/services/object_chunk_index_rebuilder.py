@@ -14,7 +14,7 @@ from ..repositories import (
 )
 from ...database import MetadataBatch
 from ...repositories import CorruptMetadataError
-from .canonicalizer import Canonicalizer
+from engram.commitment.version import VersionCommitmentService
 from .checkpoint import CheckpointError, CheckpointService
 from .delta_applier import DeltaApplier, DeltaApplyError
 from .version_signer import verify_ed25519_signature
@@ -70,7 +70,7 @@ class ObjectChunkIndexRebuilder:
         checkpoints: CheckpointRepository,
         *,
         checkpoint_service: CheckpointService,
-        canonicalizer: Canonicalizer | None = None,
+        commitment_service: VersionCommitmentService | None = None,
         delta_applier: DeltaApplier | None = None,
     ) -> None:
         """Create a rebuilder with all persistence and service dependencies injected."""
@@ -93,7 +93,7 @@ class ObjectChunkIndexRebuilder:
         self._chunks = chunks
         self._index = index
         self._checkpoints = checkpoints
-        self._canonicalizer = canonicalizer or Canonicalizer()
+        self._commitments = commitment_service or VersionCommitmentService()
         self._applier = delta_applier or DeltaApplier()
         self._checkpoint_service = checkpoint_service
 
@@ -302,15 +302,18 @@ class ObjectChunkIndexRebuilder:
             raise ObjectChunkIndexHistoryError(
                 "Checkpoint Version parent is missing or inconsistent"
             )
-        if self._canonicalizer.hash_version(parent) != version.previous_version_hash:
+        if (
+            self._commitments.compute_manifest_hash(parent)
+            != version.previous_version_hash
+        ):
             raise ObjectChunkIndexHistoryError(
                 "Checkpoint Version previous_version_hash mismatch"
             )
 
     def _validate_version_signature(self, version: Version) -> None:
-        payload = self._canonicalizer.encode_version_signing_payload(version)
+        manifest_hash = self._commitments.compute_manifest_hash(version)
         if not verify_ed25519_signature(
-            version.writer_public_key, payload, version.signature
+            version.writer_public_key, manifest_hash, version.signature
         ):
             raise ObjectChunkIndexHistoryError(
                 f"Invalid Ed25519 signature at Version {version.sequence}"
@@ -333,7 +336,7 @@ class ObjectChunkIndexRebuilder:
             raise ObjectChunkIndexHistoryError("VersionDelta VersionID mismatch")
         if delta.created_at != version.created_at:
             raise ObjectChunkIndexHistoryError("Version and Delta timestamps differ")
-        if self._canonicalizer.hash_delta(delta) != version.delta_root:
+        if self._commitments.compute_delta_root(delta) != version.delta_root:
             raise ObjectChunkIndexHistoryError(
                 f"Version delta_root mismatch at sequence {sequence}"
             )
@@ -355,7 +358,7 @@ class ObjectChunkIndexRebuilder:
                     f"Parent VersionID mismatch at sequence {sequence}"
                 )
             if (
-                self._canonicalizer.hash_version(parent)
+                self._commitments.compute_manifest_hash(parent)
                 != version.previous_version_hash
             ):
                 raise ObjectChunkIndexHistoryError(

@@ -4,20 +4,22 @@ import pytest
 
 from engram.metadata.logical.models import Object, Version, VersionDelta
 from engram.metadata.logical.services import (
-    Canonicalizer,
     Ed25519VersionSigner,
     VersionBuilder,
     VersionDeltaMismatchError,
     VersionHeadMismatchError,
     verify_ed25519_signature,
 )
+from engram.commitment.version import VersionCanonicalizer, DeltaCanonicalizer
 
 
 def uid():
     return str(uuid4())
 
 
-def make_delta(object_id, sequence, *, version_id=None, added=(), removed=(), created_at=100):
+def make_delta(
+    object_id, sequence, *, version_id=None, added=(), removed=(), created_at=100
+):
     return VersionDelta(
         object_id=object_id,
         version_id=version_id or uid(),
@@ -29,7 +31,7 @@ def make_delta(object_id, sequence, *, version_id=None, added=(), removed=(), cr
 
 
 def verify_version(version):
-    payload = Canonicalizer.encode_version_signing_payload(version)
+    payload = VersionCanonicalizer.hash(version)
     return verify_ed25519_signature(
         version.writer_public_key,
         payload,
@@ -56,14 +58,13 @@ def test_build_first_version():
     assert result.version.sequence == 1
     assert result.version.parent_version_id is None
     assert result.version.previous_version_hash is None
-    assert result.version.delta_root == Canonicalizer.hash_delta(delta)
+    assert result.version.delta_root == DeltaCanonicalizer.hash(delta)
     assert result.version.writer_public_key == signer.public_key
     assert verify_version(result.version)
 
 
 def test_build_second_version_links_parent_hash():
     signer = Ed25519VersionSigner.generate()
-    canonicalizer = Canonicalizer()
     object_id = "object-A"
 
     parent = Version(
@@ -87,7 +88,7 @@ def test_build_second_version_links_parent_hash():
     )
     delta = make_delta(object_id, 2)
 
-    result = VersionBuilder(canonicalizer).build(
+    result = VersionBuilder().build(
         object=obj,
         parent_version=parent,
         delta=delta,
@@ -95,7 +96,7 @@ def test_build_second_version_links_parent_hash():
     )
 
     assert result.version.parent_version_id == parent.version_id
-    assert result.version.previous_version_hash == canonicalizer.hash_version(parent)
+    assert result.version.previous_version_hash == VersionCanonicalizer.hash(parent)
     assert verify_version(result.version)
 
 
@@ -167,15 +168,19 @@ def test_reject_delta_for_wrong_object_or_sequence(delta):
 def test_signature_fails_if_signed_fields_are_changed():
     signer = Ed25519VersionSigner.generate()
     obj = Object(object_id="object-A", created_at=1, updated_at=1)
-    version = VersionBuilder().build(
-        object=obj,
-        parent_version=None,
-        delta=make_delta(obj.object_id, 1),
-        signer=signer,
-    ).version
+    version = (
+        VersionBuilder()
+        .build(
+            object=obj,
+            parent_version=None,
+            delta=make_delta(obj.object_id, 1),
+            signer=signer,
+        )
+        .version
+    )
 
     assert verify_version(version)
-    changed_payload = Canonicalizer.encode_version_signing_payload(
+    changed_payload = VersionCanonicalizer.encode(
         Version(
             version_id=version.version_id,
             object_id=version.object_id,

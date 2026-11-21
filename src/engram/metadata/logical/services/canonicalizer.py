@@ -128,44 +128,44 @@ class Canonicalizer:
     # VersionDelta
     # ------------------------------------------------------------------
 
-    @classmethod
-    def encode_delta(cls, delta: VersionDelta) -> bytes:
-        if not isinstance(delta, VersionDelta):
-            raise TypeError("delta must be a VersionDelta")
+    # @classmethod
+    # def encode_delta(cls, delta: VersionDelta) -> bytes:
+    #    if not isinstance(delta, VersionDelta):
+    #        raise TypeError("delta must be a VersionDelta")
+    #
+    #    added = sorted(
+    #        delta.added_chunks,
+    #        key=lambda ref: cls._encode_order_key(ref.order_key),
+    #    )
+    #
+    #    removed = sorted(
+    #        delta.removed_chunk_ref_ids,
+    #        key=cls._encode_uuid,
+    #    )
+    #
+    #    parts = [
+    #        cls.DOMAIN_DELTA,
+    #        cls._encode_string(delta.object_id),
+    #        cls._encode_uuid(delta.version_id),
+    #        cls._encode_u64(delta.sequence),
+    #        cls._encode_u64(delta.created_at),
+    #        cls._encode_u32(len(added)),
+    #    ]
+    #
+    #    for ref in added:
+    #        encoded_ref = cls.encode_chunk_ref(ref)
+    #        parts.append(cls._encode_bytes(encoded_ref))
+    #
+    #    parts.append(cls._encode_u32(len(removed)))
+    #
+    #    for chunk_ref_id in removed:
+    #        parts.append(cls._encode_uuid(chunk_ref_id))
+    #
+    #    return b"".join(parts)
 
-        added = sorted(
-            delta.added_chunks,
-            key=lambda ref: cls._encode_order_key(ref.order_key),
-        )
-
-        removed = sorted(
-            delta.removed_chunk_ref_ids,
-            key=cls._encode_uuid,
-        )
-
-        parts = [
-            cls.DOMAIN_DELTA,
-            cls._encode_string(delta.object_id),
-            cls._encode_uuid(delta.version_id),
-            cls._encode_u64(delta.sequence),
-            cls._encode_u64(delta.created_at),
-            cls._encode_u32(len(added)),
-        ]
-
-        for ref in added:
-            encoded_ref = cls.encode_chunk_ref(ref)
-            parts.append(cls._encode_bytes(encoded_ref))
-
-        parts.append(cls._encode_u32(len(removed)))
-
-        for chunk_ref_id in removed:
-            parts.append(cls._encode_uuid(chunk_ref_id))
-
-        return b"".join(parts)
-
-    @classmethod
-    def hash_delta(cls, delta: VersionDelta) -> bytes:
-        return hashlib.sha256(cls.encode_delta(delta)).digest()
+    # @classmethod
+    # def hash_delta(cls, delta: VersionDelta) -> bytes:
+    #    return hashlib.sha256(cls.encode_delta(delta)).digest()
 
     # ------------------------------------------------------------------
     # Version
@@ -220,22 +220,22 @@ class Canonicalizer:
             )
         )
 
-    @classmethod
-    def encode_version(cls, version: Version) -> bytes:
-        """
-        Returns the canonical full Version record, including signature.
-        """
-        return b"".join(
-            (
-                cls.DOMAIN_VERSION_RECORD,
-                cls._encode_version_fields(version),
-                cls._encode_bytes(version.signature),
-            )
-        )
-
-    @classmethod
-    def hash_version(cls, version: Version) -> bytes:
-        return hashlib.sha256(cls.encode_version(version)).digest()
+    # @classmethod
+    # def encode_version(cls, version: Version) -> bytes:
+    #    """
+    #    Returns the canonical full Version record, including signature.
+    #    """
+    #    return b"".join(
+    #        (
+    #            cls.DOMAIN_VERSION_RECORD,
+    #            cls._encode_version_fields(version),
+    #            cls._encode_bytes(version.signature),
+    #        )
+    #    )
+    #
+    # @classmethod
+    # def hash_version(cls, version: Version) -> bytes:
+    #    return hashlib.sha256(cls.encode_version(version)).digest()
 
     # ------------------------------------------------------------------
     # CheckpointEntry

@@ -13,7 +13,7 @@ from ..repositories import (
     ChunkRepository,
     ObjectChunkIndexError,
 )
-from .canonicalizer import Canonicalizer
+from engram.commitment.version import VersionCommitmentService
 from .version_builder import VersionBuildResult
 from .version_signer import verify_ed25519_signature
 from .object_chunk_index_updater import (
@@ -69,7 +69,7 @@ class VersionCommitService:
         db: MetadataDB,
         physical_readiness: PhysicalReadinessChecker,
         *,
-        canonicalizer: Canonicalizer | None = None,
+        commitment_service: VersionCommitmentService | None = None,
         index_updater: ObjectChunkIndexUpdater | None = None,
     ) -> None:
         if db is None:
@@ -81,7 +81,7 @@ class VersionCommitService:
         self._versions = VersionRepository(db)
         self._deltas = VersionDeltaRepository(db)
         self._readiness = physical_readiness
-        self._canonicalizer = canonicalizer or Canonicalizer()
+        self._commitments = commitment_service or VersionCommitmentService()
         self._index_updater = index_updater or ObjectChunkIndexUpdater(
             ObjectChunkIndexRepository(db),
             ChunkRepository(db),
@@ -206,7 +206,7 @@ class VersionCommitService:
                 "Version timestamp must not be earlier than Object.updated_at"
             )
 
-        expected_delta_root = self._canonicalizer.hash_delta(delta)
+        expected_delta_root = self._commitments.compute_delta_root(delta)
         if version.delta_root != expected_delta_root:
             raise InvalidVersionBuildResultError(
                 "Version delta_root does not match the supplied Delta"
@@ -231,16 +231,16 @@ class VersionCommitService:
                 raise InvalidVersionBuildResultError(
                     "Version parent does not match current Object Head"
                 )
-            expected_parent_hash = self._canonicalizer.hash_version(parent)
+            expected_parent_hash = self._commitments.compute_manifest_hash(parent)
             if version.previous_version_hash != expected_parent_hash:
                 raise InvalidVersionBuildResultError(
                     "Version previous_version_hash does not match parent Version"
                 )
 
-        signing_payload = self._canonicalizer.encode_version_signing_payload(version)
+        manifest_hash = self._commitments.compute_manifest_hash(version)
         if not verify_ed25519_signature(
             version.writer_public_key,
-            signing_payload,
+            manifest_hash,
             version.signature,
         ):
             raise InvalidVersionBuildResultError("Version Ed25519 signature is invalid")

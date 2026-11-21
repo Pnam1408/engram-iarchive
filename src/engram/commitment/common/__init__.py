@@ -6,6 +6,7 @@ from .domains import (
     SHARD_MERKLE_NODE,
     SNAPSHOT,
     VERSION_MANIFEST,
+    VERSION_DELTA,
     VERSION_MMR_LEAF,
     VERSION_MMR_NODE,
 )

@@ -9,7 +9,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 
 
 class VersionSigner(Protocol):
-    """Signing interface consumed by VersionBuilder."""
+    """Ed25519 signing interface for Version Manifest Hash values."""
 
     @property
     def public_key(self) -> bytes:
@@ -17,7 +17,7 @@ class VersionSigner(Protocol):
         ...
 
     def sign(self, payload: bytes) -> bytes:
-        """Sign canonical payload bytes."""
+        """Sign the 32-byte Version Manifest Hash."""
         ...
 
 

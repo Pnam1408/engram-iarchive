@@ -3,7 +3,7 @@ from ..models import Object, Version, VersionDelta
 from ..models._validation import validate_non_empty_string
 from ..models.unsigned_version import UnsignedVersion
 
-from .canonicalizer import Canonicalizer
+from engram.commitment.version import VersionCommitmentService
 from .version_signer import VersionSigner
 
 DEFAULT_VERSION_CODEC = "ENGRAM-LOGICAL-METADATA/1"
@@ -41,12 +41,12 @@ class VersionBuilder:
 
     def __init__(
         self,
-        canonicalizer: Canonicalizer | None = None,
+        commitment_service: VersionCommitmentService | None = None,
         *,
         codec: str = DEFAULT_VERSION_CODEC,
     ) -> None:
         validate_non_empty_string(codec, "codec")
-        self._canonicalizer = canonicalizer or Canonicalizer()
+        self._commitments = commitment_service or VersionCommitmentService()
         self._codec = codec
 
     def build(
@@ -58,11 +58,6 @@ class VersionBuilder:
         signer: VersionSigner,
     ) -> VersionBuildResult:
         self._validate_inputs(object, parent_version, delta, signer)
-
-        if delta.created_at < object.created_at:
-            raise VersionDeltaMismatchError(
-                "Delta timestamp must not be earlier than Object creation"
-            )
 
         expected_sequence = object.head_sequence + 1
         if delta.sequence != expected_sequence:
@@ -99,12 +94,8 @@ class VersionBuilder:
                 raise VersionHeadMismatchError(
                     "Parent Version ID does not match Object Head"
                 )
-            if delta.created_at < parent_version.created_at:
-                raise VersionDeltaMismatchError(
-                    "Delta timestamp must not be earlier than its parent Version"
-                )
             parent_version_id = parent_version.version_id
-            previous_version_hash = self._canonicalizer.hash_version(parent_version)
+            previous_version_hash = self._commitments.compute_manifest_hash(parent_version)
 
         # SequenceDiffPlanner assigned this ID to the Delta; the Version
         # must use exactly the same ID.
@@ -113,7 +104,7 @@ class VersionBuilder:
             object_id=object.object_id,
             sequence=expected_sequence,
             parent_version_id=parent_version_id,
-            delta_root=self._canonicalizer.hash_delta(delta),
+            delta_root=self._commitments.compute_delta_root(delta),
             previous_version_hash=previous_version_hash,
             codec=self._codec,
             writer_public_key=signer.public_key,
@@ -121,10 +112,8 @@ class VersionBuilder:
         )
 
         try:
-            signing_payload = self._canonicalizer.encode_version_signing_payload(
-                unsigned
-            )
-            signature = signer.sign(signing_payload)
+            manifest_hash = self._commitments.compute_manifest_hash(unsigned)
+            signature = signer.sign(manifest_hash)
         except Exception as exc:
             raise VersionSigningError("Failed to sign Version payload") from exc
 
