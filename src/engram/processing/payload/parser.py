@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from engram.processing.artifacts import (
     EncryptedChunkRecord,
     GenerationPayload,
@@ -13,7 +15,10 @@ from .format import PAYLOAD_FORMAT_VERSION, decode_record
 
 
 class BinaryPayloadParser:
-    """Recover transport records; logical hashes are resolved by metadata separately."""
+    """Verify each serialized-record digest, then recover transport records.
+
+    Logical chunk integrity hashes are resolved by Metadata separately.
+    """
 
     def parse_record(
         self, payload: GenerationPayload, record: PayloadRecord
@@ -33,6 +38,8 @@ class BinaryPayloadParser:
             raise PayloadError("record range is outside payload data")
 
         encoded = payload.data[record.offset : end]
+        if hashlib.sha256(encoded).digest() != record.record_hash:
+            raise PayloadError("Record hash mismatch")
         chunk = decode_record(encoded, expected_format_version=payload.format_version)
         if chunk.object_id != record.object_id or chunk.chunk_id != record.chunk_id:
             raise PayloadError("Record identity does not match PayloadRecord metadata")

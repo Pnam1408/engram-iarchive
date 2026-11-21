@@ -32,6 +32,7 @@ def make_payload(data: bytes) -> GenerationPayload:
                     chunk_id="test-chunk",
                     offset=0,
                     length=len(data),
+                    record_hash=hashlib.sha256(data).digest(),
                 ),
             )
             if data

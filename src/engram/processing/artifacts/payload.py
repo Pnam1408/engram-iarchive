@@ -22,6 +22,7 @@ class PayloadRecord:
     chunk_id: str
     offset: int
     length: int
+    record_hash: bytes
 
     def __post_init__(self) -> None:
         require_non_negative_int("record_index", self.record_index)
@@ -29,6 +30,9 @@ class PayloadRecord:
         require_non_empty_string("chunk_id", self.chunk_id)
         require_non_negative_int("offset", self.offset)
         require_positive_int("length", self.length)
+        require_bytes("record_hash", self.record_hash)
+        if len(self.record_hash) != 32:
+            raise InvalidArtifactError("record_hash must be exactly 32 bytes")
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,12 +54,18 @@ class GenerationPayload:
             raise InvalidArtifactError("records must be a tuple")
         if any(not isinstance(record, PayloadRecord) for record in self.records):
             raise InvalidArtifactError("records must contain PayloadRecord values")
-        if tuple(record.record_index for record in self.records) != tuple(range(len(self.records))):
-            raise InvalidArtifactError("record_index values must be contiguous from zero")
+        if tuple(record.record_index for record in self.records) != tuple(
+            range(len(self.records))
+        ):
+            raise InvalidArtifactError(
+                "record_index values must be contiguous from zero"
+            )
 
         identities = [(record.object_id, record.chunk_id) for record in self.records]
         if len(identities) != len(set(identities)):
-            raise InvalidArtifactError("a logical chunk may appear only once per generation")
+            raise InvalidArtifactError(
+                "a logical chunk may appear only once per generation"
+            )
 
         expected_offset = 0
         for record in self.records:
@@ -69,4 +79,6 @@ class GenerationPayload:
 
         if expected_offset != len(self.data):
             if self.records or self.data:
-                raise InvalidArtifactError("records must cover the complete payload data")
+                raise InvalidArtifactError(
+                    "records must cover the complete payload data"
+                )

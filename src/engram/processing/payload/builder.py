@@ -41,6 +41,7 @@ class BinaryPayloadBuilder:
                     chunk_id=chunk.chunk_id,
                     offset=offset,
                     length=len(encoded),
+                    record_hash=hashlib.sha256(encoded).digest(),
                 )
             )
             offset += len(encoded)

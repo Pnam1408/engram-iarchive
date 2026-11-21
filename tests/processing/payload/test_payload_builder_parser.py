@@ -144,6 +144,7 @@ def test_parser_detects_record_identity_mismatch(encrypted_chunks):
         chunk_id=record.chunk_id,
         offset=record.offset,
         length=record.length,
+        record_hash=record.record_hash,
     )
     with pytest.raises(PayloadError):
         BinaryPayloadParser().parse_record(payload, forged)
@@ -164,3 +165,29 @@ def test_parser_rejects_extra_trailing_bytes(encrypted_chunks):
     encoded = payload.data + b"x"
     with pytest.raises(PayloadError):
         decode_record(encoded, expected_format_version=PAYLOAD_FORMAT_VERSION)
+
+
+def test_parser_detects_record_bytes_tampering(encrypted_chunks):
+    from dataclasses import replace
+
+    _, _, chunks = encrypted_chunks
+    payload = BinaryPayloadBuilder().build((chunks[0],))
+    corrupted_data = bytearray(payload.data)
+    corrupted_data[payload.records[0].offset + payload.records[0].length - 1] ^= 1
+    corrupted_payload = replace(
+        payload,
+        data=bytes(corrupted_data),
+        sha256=hashlib.sha256(corrupted_data).hexdigest(),
+    )
+    with pytest.raises(PayloadError, match="Record hash mismatch"):
+        BinaryPayloadParser().parse_record(
+            corrupted_payload, corrupted_payload.records[0]
+        )
+
+
+def test_builder_record_hashes_match_full_serialized_record(encrypted_chunks):
+    _, _, chunks = encrypted_chunks
+    payload = BinaryPayloadBuilder().build(chunks)
+    for record in payload.records:
+        serialized = payload.data[record.offset : record.offset + record.length]
+        assert record.record_hash == hashlib.sha256(serialized).digest()

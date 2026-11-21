@@ -80,15 +80,21 @@ def test_encrypted_chunk_record_contains_no_plaintext_digest_or_secret_key() -> 
 def test_payload_records_must_be_contiguous_and_cover_data() -> None:
     data = b"header-record-1record-2"
     records = (
-        PayloadRecord(0, "object-1", "chunk-1", 0, 13),
-        PayloadRecord(1, "object-2", "chunk-2", 13, 10),
+        PayloadRecord(
+            0, "object-1", "chunk-1", 0, 13, hashlib.sha256(data[:13]).digest()
+        ),
+        PayloadRecord(
+            1, "object-2", "chunk-2", 13, 10, hashlib.sha256(data[13:]).digest()
+        ),
     )
     payload = GenerationPayload(data, records, 1, digest(data))
     assert payload.records[1].offset == 13
 
     bad_records = (
         records[0],
-        PayloadRecord(1, "object-2", "chunk-2", 14, 9),
+        PayloadRecord(
+            1, "object-2", "chunk-2", 14, 9, hashlib.sha256(data[14:]).digest()
+        ),
     )
     with pytest.raises(InvalidArtifactError):
         GenerationPayload(data, bad_records, 1, digest(data))
@@ -101,7 +107,7 @@ def test_payload_rejects_bad_digest_and_out_of_range_record() -> None:
     with pytest.raises(InvalidArtifactError):
         GenerationPayload(
             b"abc",
-            (PayloadRecord(0, "o", "c", 0, 4),),
+            (PayloadRecord(0, "o", "c", 0, 4, hashlib.sha256(b"abc").digest()),),
             1,
             digest(b"abc"),
         )
@@ -137,3 +143,8 @@ def test_encoded_shard_set_requires_exact_ordered_indexes_and_equal_sizes() -> N
     )
     with pytest.raises(InvalidArtifactError):
         EncodedShardSet(uneven, 8, 2, 3)
+
+
+def test_payload_record_requires_sha256_digest():
+    with pytest.raises(InvalidArtifactError, match="exactly 32 bytes"):
+        PayloadRecord(0, "o", "c", 0, 3, b"short")

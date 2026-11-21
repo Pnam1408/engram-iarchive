@@ -31,7 +31,10 @@ parsed transport artifact; it is not a substitute for logical chunk metadata.
 `PayloadRecord.offset` points to the first byte of the record (the magic), and
 `PayloadRecord.length` includes header and ciphertext. Records are packed
 contiguously in input order. `GenerationPayload.sha256` covers all concatenated
-payload bytes.
+payload bytes. Each `PayloadRecord.record_hash` is the raw 32-byte SHA-256 of
+that complete serialized record, including its header and ciphertext. The builder
+computes this digest from the same encoded bytes it appends to the payload. The
+parser recomputes and checks it before decoding the record.
 
 ## API
 
