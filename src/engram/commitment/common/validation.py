@@ -85,3 +85,17 @@ def require_unique(
             raise InvalidTypeError(f"{name} uniqueness key must be hashable") from exc
         if duplicate:
             raise DuplicateValueError(f"duplicate value in {name}: {marker!r}")
+
+
+def require_field_element(value: Any, modulus: int, *, name: str = "value") -> int:
+    """Validate an integer in the canonical range of a prime field.
+
+    No coercion or modular reduction is performed; bool is deliberately rejected.
+    """
+    if type(modulus) is not int or modulus <= 1:
+        raise InvalidInputError("modulus must be an int greater than 1")
+    if type(value) is not int:
+        raise InvalidTypeError(f"{name} must be an int (bool is not accepted)")
+    if value < 0 or value >= modulus:
+        raise ValueOutOfRangeError(f"{name} must satisfy 0 <= {name} < modulus")
+    return value

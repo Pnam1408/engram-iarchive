@@ -86,7 +86,9 @@ def test_service_verifies_delta_identity_and_root():
     version = make_version(delta)
     service = VersionCommitmentService()
     assert service.verify_delta(version, delta)
-    assert service.verify_delta(version, replace(delta, created_at=200))  # timestamp is not committed
+    assert service.verify_delta(
+        version, replace(delta, created_at=200)
+    )  # timestamp is not committed
     with pytest.raises(ValueError):
         service.verify_delta(version, replace(delta, object_id="other"))
 

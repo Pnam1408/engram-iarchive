@@ -4,6 +4,8 @@ from .domains import (
     GENERATION_MANIFEST,
     SHARD_MERKLE_LEAF,
     SHARD_MERKLE_NODE,
+    SHARD_MERKLE_POSEIDON_LEAF,
+    SHARD_MERKLE_POSEIDON_NODE,
     SNAPSHOT,
     VERSION_MANIFEST,
     VERSION_DELTA,
@@ -36,6 +38,7 @@ from .exceptions import (
 from .hashing import hash_bytes, hash_with_domain
 from .validation import (
     require_bytes,
+    require_field_element,
     require_length,
     require_not_none,
     require_string,

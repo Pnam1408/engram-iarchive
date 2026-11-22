@@ -13,7 +13,10 @@ def test_hash_bytes_sha256_vector():
 def test_hash_with_domain_matches_defined_framing():
     payload = b"payload"
     domain = "ENGRAM/TEST/v1"
-    assert hash_with_domain(domain, payload) == hashlib.sha256(encode_string(domain) + payload).digest()
+    assert (
+        hash_with_domain(domain, payload)
+        == hashlib.sha256(encode_string(domain) + payload).digest()
+    )
 
 
 def test_domain_separation_changes_digest():

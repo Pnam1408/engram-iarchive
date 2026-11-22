@@ -2,20 +2,31 @@ from uuid import UUID
 import pytest
 
 from engram.commitment.common.encoding import (
-    encode_bytes, encode_list, encode_optional, encode_raw_bytes, encode_string,
-    encode_u8, encode_u16, encode_u32, encode_u64, encode_uuid,
+    encode_bytes,
+    encode_list,
+    encode_optional,
+    encode_raw_bytes,
+    encode_string,
+    encode_u8,
+    encode_u16,
+    encode_u32,
+    encode_u64,
+    encode_uuid,
 )
 from engram.commitment.common.exceptions import InvalidTypeError, ValueOutOfRangeError
 
 
-
-@pytest.mark.parametrize("fn,width,value", [
-    (encode_u8, 1, 0xAB), (encode_u16, 2, 0xABCD),
-    (encode_u32, 4, 0x01020304), (encode_u64, 8, 0x0102030405060708),
-])
+@pytest.mark.parametrize(
+    "fn,width,value",
+    [
+        (encode_u8, 1, 0xAB),
+        (encode_u16, 2, 0xABCD),
+        (encode_u32, 4, 0x01020304),
+        (encode_u64, 8, 0x0102030405060708),
+    ],
+)
 def test_integer_big_endian(fn, width, value):
     assert fn(value) == value.to_bytes(width, "big")
-
 
 
 @pytest.mark.parametrize("fn", [encode_u8, encode_u16, encode_u32, encode_u64])
@@ -26,10 +37,15 @@ def test_integer_rejects_bool_and_wrong_type(fn):
         fn(1.0)
 
 
-
-@pytest.mark.parametrize("fn,bits", [
-    (encode_u8, 8), (encode_u16, 16), (encode_u32, 32), (encode_u64, 64),
-])
+@pytest.mark.parametrize(
+    "fn,bits",
+    [
+        (encode_u8, 8),
+        (encode_u16, 16),
+        (encode_u32, 32),
+        (encode_u64, 64),
+    ],
+)
 def test_integer_rejects_negative_and_overflow(fn, bits):
     with pytest.raises(ValueOutOfRangeError):
         fn(-1)

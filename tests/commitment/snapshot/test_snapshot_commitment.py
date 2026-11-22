@@ -35,7 +35,8 @@ def test_snapshot_commits_all_chunk_ref_fields():
 
     changed_chunk = ChunkRef(ref.chunk_ref_id, str(uuid4()), ref.order_key)
     changed_order = ChunkRef(
-        ref.chunk_ref_id, ref.chunk_id,
+        ref.chunk_ref_id,
+        ref.chunk_id,
         generate_key_between(ref.order_key, None),
     )
 
@@ -48,32 +49,41 @@ def test_snapshot_binds_object_version_and_sequence():
     args = dict(object_id="object-A", sequence=1, version_id=str(uuid4()))
     original = SnapshotCanonicalizer.hash(**args, chunk_refs=(ref,))
 
-    assert SnapshotCanonicalizer.hash(
-        **{**args, "object_id": "object-B"}, chunk_refs=(ref,)
-    ) != original
-    assert SnapshotCanonicalizer.hash(
-        **{**args, "sequence": 2}, chunk_refs=(ref,)
-    ) != original
-    assert SnapshotCanonicalizer.hash(
-        **{**args, "version_id": str(uuid4())}, chunk_refs=(ref,)
-    ) != original
+    assert (
+        SnapshotCanonicalizer.hash(
+            **{**args, "object_id": "object-B"}, chunk_refs=(ref,)
+        )
+        != original
+    )
+    assert (
+        SnapshotCanonicalizer.hash(**{**args, "sequence": 2}, chunk_refs=(ref,))
+        != original
+    )
+    assert (
+        SnapshotCanonicalizer.hash(
+            **{**args, "version_id": str(uuid4())}, chunk_refs=(ref,)
+        )
+        != original
+    )
 
 
 def test_empty_snapshot_is_valid_and_bound_to_version():
     args = dict(object_id="object-A", sequence=1, version_id=str(uuid4()))
     root = SnapshotCanonicalizer.hash(**args, chunk_refs=())
     assert len(root) == 32
-    assert root != SnapshotCanonicalizer.hash(
-        **{**args, "sequence": 2}, chunk_refs=()
-    )
+    assert root != SnapshotCanonicalizer.hash(**{**args, "sequence": 2}, chunk_refs=())
 
 
 def test_duplicate_chunk_ref_id_is_rejected():
     ref = make_ref()
-    duplicate = ChunkRef(ref.chunk_ref_id, str(uuid4()), generate_key_between(ref.order_key, None))
+    duplicate = ChunkRef(
+        ref.chunk_ref_id, str(uuid4()), generate_key_between(ref.order_key, None)
+    )
     with pytest.raises(ValueError, match="duplicate ChunkRefID"):
         SnapshotCanonicalizer.hash(
-            object_id="object-A", sequence=1, version_id=str(uuid4()),
+            object_id="object-A",
+            sequence=1,
+            version_id=str(uuid4()),
             chunk_refs=(ref, duplicate),
         )
 
@@ -83,7 +93,9 @@ def test_duplicate_order_key_is_rejected():
     duplicate = ChunkRef(str(uuid4()), str(uuid4()), ref.order_key)
     with pytest.raises(ValueError, match="duplicate OrderKey"):
         SnapshotCanonicalizer.hash(
-            object_id="object-A", sequence=1, version_id=str(uuid4()),
+            object_id="object-A",
+            sequence=1,
+            version_id=str(uuid4()),
             chunk_refs=(ref, duplicate),
         )
 
@@ -91,7 +103,9 @@ def test_duplicate_order_key_is_rejected():
 def test_service_verifies_expected_root():
     ref = make_ref()
     service = SnapshotCommitmentService()
-    args = dict(object_id="object-A", sequence=1, version_id=str(uuid4()), chunk_refs=(ref,))
+    args = dict(
+        object_id="object-A", sequence=1, version_id=str(uuid4()), chunk_refs=(ref,)
+    )
     root = service.compute_snapshot_root(**args)
 
     assert service.verify_snapshot(**args, expected_root=root)
