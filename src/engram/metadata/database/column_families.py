@@ -32,6 +32,10 @@ class ColumnFamily(str, Enum):
     GENERATION_CHUNKS = "generation_chunks"
     SHARDS = "shards"
 
+    # Shard Commitment Metadata
+    GENERATION_SHARD_COMMITMENTS = "generation_shard_commitments"
+    GENERATION_SHARD_COMMITMENT_ENTRIES = "generation_shard_commitment_entries"
+
     SYSTEM = "system"
 
 

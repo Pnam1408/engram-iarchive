@@ -15,3 +15,8 @@ __all__ = [
     "ShardPlacementRepository",
     "StorageReceiptRepository",
 ]
+
+from .generation_shard_commitments import GenerationShardCommitmentRepository
+from .generation_shard_commitment_entries import GenerationShardCommitmentEntryRepository
+
+__all__ += ["GenerationShardCommitmentRepository", "GenerationShardCommitmentEntryRepository"]

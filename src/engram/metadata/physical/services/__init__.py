@@ -121,3 +121,21 @@ __all__ += [
     "StorageReceiptIntegrityError",
     "StorageReceiptAlreadyExistsError",
 ]
+
+from .shard_commitment_metadata import (
+    GenerationShardCommitmentBundle,
+    ShardCommitmentMetadataService,
+    ShardCommitmentMetadataServiceError,
+    ShardCommitmentGenerationNotFoundError,
+    ShardCommitmentAlreadyRegisteredError,
+    ShardCommitmentPreconditionError,
+    ShardCommitmentNotFoundError,
+    ShardCommitmentIntegrityError,
+)
+
+__all__ += [
+    "GenerationShardCommitmentBundle", "ShardCommitmentMetadataService",
+    "ShardCommitmentMetadataServiceError", "ShardCommitmentGenerationNotFoundError",
+    "ShardCommitmentAlreadyRegisteredError", "ShardCommitmentPreconditionError",
+    "ShardCommitmentNotFoundError", "ShardCommitmentIntegrityError",
+]

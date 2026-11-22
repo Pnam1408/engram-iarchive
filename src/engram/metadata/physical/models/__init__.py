@@ -18,3 +18,17 @@ __all__ = [
     "StorageReceipt",
     "ReceiptType",
 ]
+
+from .generation_shard_commitment import (
+    GenerationShardCommitment,
+    SHARD_COMMITMENT_PROTOCOL,
+    BN254_SCALAR_MODULUS,
+)
+from .generation_shard_commitment_entry import GenerationShardCommitmentEntry
+
+__all__ += [
+    "GenerationShardCommitment",
+    "GenerationShardCommitmentEntry",
+    "SHARD_COMMITMENT_PROTOCOL",
+    "BN254_SCALAR_MODULUS",
+]

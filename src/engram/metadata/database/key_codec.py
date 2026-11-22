@@ -338,9 +338,8 @@ class KeyCodec:
         offset: int,
     ) -> bytes:
         """Key entries by payload offset so prefix iteration is ordered."""
-        return (
-            cls.generation_manifest_entry_prefix(generation_id)
-            + cls.encode_uint64(offset)
+        return cls.generation_manifest_entry_prefix(generation_id) + cls.encode_uint64(
+            offset
         )
 
     # ------------------------------------------------------------------
@@ -357,10 +356,29 @@ class KeyCodec:
         generation_id: str,
         shard_index: int,
     ) -> bytes:
-        return (
-            cls.generation_shard_prefix(generation_id)
-            + cls.encode_uint64(shard_index)
+        return cls.generation_shard_prefix(generation_id) + cls.encode_uint64(
+            shard_index
         )
+
+    # ------------------------------------------------------------------
+    # Physical Metadata - Generation Shard Commitment
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def generation_shard_commitment_key(cls, generation_id: str) -> bytes:
+        return cls.encode_string(generation_id)
+
+    @classmethod
+    def generation_shard_commitment_entry_prefix(cls, generation_id: str) -> bytes:
+        return cls.encode_string(generation_id)
+
+    @classmethod
+    def generation_shard_commitment_entry_key(
+        cls, generation_id: str, shard_index: int
+    ) -> bytes:
+        return cls.generation_shard_commitment_entry_prefix(
+            generation_id
+        ) + cls.encode_uint64(shard_index)
 
     # ------------------------------------------------------------------
     # Physical Metadata - Chunk Placements
@@ -385,10 +403,9 @@ class KeyCodec:
         chunk_id: str,
         placement_id: str,
     ) -> bytes:
-        return (
-            cls.chunk_placement_index_prefix(object_id, chunk_id)
-            + cls.encode_string(placement_id)
-        )
+        return cls.chunk_placement_index_prefix(
+            object_id, chunk_id
+        ) + cls.encode_string(placement_id)
 
     # ------------------------------------------------------------------
     # Physical Metadata - Shard Placements
@@ -404,10 +421,7 @@ class KeyCodec:
         generation_id: str,
         shard_index: int,
     ) -> bytes:
-        return (
-            cls.encode_string(generation_id)
-            + cls.encode_uint64(shard_index)
-        )
+        return cls.encode_string(generation_id) + cls.encode_uint64(shard_index)
 
     @classmethod
     def shard_placement_index_key(
@@ -416,10 +430,9 @@ class KeyCodec:
         shard_index: int,
         placement_id: str,
     ) -> bytes:
-        return (
-            cls.shard_placement_index_prefix(generation_id, shard_index)
-            + cls.encode_string(placement_id)
-        )
+        return cls.shard_placement_index_prefix(
+            generation_id, shard_index
+        ) + cls.encode_string(placement_id)
 
     # ------------------------------------------------------------------
     # Physical Metadata - Storage Receipts
