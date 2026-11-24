@@ -12,6 +12,7 @@ class ColumnFamily(str, Enum):
     CHECKPOINTS = "checkpoints"
     CHECKPOINT_ENTRIES = "checkpoint_entries"
     MMR = "mmr"
+    MMR_NODES = "mmr_nodes"
 
     # Physical Metadata
     GENERATIONS = "generations"

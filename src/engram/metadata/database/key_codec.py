@@ -88,6 +88,21 @@ class KeyCodec:
         return value, end
 
     @staticmethod
+    def encode_uint8(value: int) -> bytes:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError("value must be an integer (bool is not accepted)")
+        if not 0 <= value <= 0xFF:
+            raise ValueError("value must be an unsigned 8-bit integer")
+        return bytes((value,))
+
+    @staticmethod
+    def decode_uint8(data: bytes, offset: int = 0) -> tuple[int, int]:
+        KeyCodec._validate_offset(data, offset)
+        if offset >= len(data):
+            raise KeyCodecError("Incomplete uint8 field")
+        return data[offset], offset + 1
+
+    @staticmethod
     def encode_uint64(value: int) -> bytes:
         if isinstance(value, bool) or not isinstance(value, int):
             raise TypeError("value must be an integer (bool is not accepted)")
@@ -307,12 +322,38 @@ class KeyCodec:
         )
 
     # ------------------------------------------------------------------
-    # MMR
+    # MMR State
     # ------------------------------------------------------------------
 
     @classmethod
     def mmr_key(cls, object_id: str) -> bytes:
         return cls.encode_string(object_id)
+
+    # ------------------------------------------------------------------
+    # MMR Internal Nodes
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def mmr_node_prefix(cls, object_id: str) -> bytes:
+        return cls.encode_string(object_id)
+
+    @classmethod
+    def mmr_node_key(cls, object_id: str, start_leaf: int, height: int) -> bytes:
+        if isinstance(height, bool) or not isinstance(height, int):
+            raise TypeError("height must be an integer")
+        if not 1 <= height <= 63:
+            raise ValueError("height must be in [1, 63]")
+        if isinstance(start_leaf, bool) or not isinstance(start_leaf, int):
+            raise TypeError("start_leaf must be an integer")
+        if not 0 <= start_leaf <= cls.UINT64_MAX:
+            raise ValueError("start_leaf must fit uint64")
+        if start_leaf % (1 << height):
+            raise ValueError("start_leaf must be aligned to subtree size")
+        return (
+            cls.mmr_node_prefix(object_id)
+            + cls.encode_uint64(start_leaf)
+            + cls.encode_uint8(height)
+        )
 
     # ------------------------------------------------------------------
     # Physical Metadata - Generation Manifest

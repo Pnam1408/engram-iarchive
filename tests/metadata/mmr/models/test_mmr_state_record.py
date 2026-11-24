@@ -14,6 +14,6 @@ def test_state_record_rejects_wrong_protocol():
         MMRStateRecord(str(uuid4()), "wrong", MMRState(0, ()))
 
 
-def test_state_record_rejects_invalid_object_id():
-    with pytest.raises(ValueError, match="valid UUID"):
-        MMRStateRecord("not-a-uuid", MMR_PROTOCOL, MMRState(0, ()))
+def test_state_record_rejects_empty_object_id():
+    with pytest.raises(ValueError, match="empty"):
+        MMRStateRecord("", MMR_PROTOCOL, MMRState(0, ()))

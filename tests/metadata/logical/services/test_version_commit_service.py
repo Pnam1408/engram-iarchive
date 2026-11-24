@@ -83,7 +83,7 @@ def build_result(obj, *, parent=None, created_at=20, signer=None):
     )
 
 
-def test_commit_first_version_atomically_updates_three_records(db):
+def test_commit_first_version_atomically_updates_all_metadata(db):
     obj = create_object(db)
     result = build_result(obj)
     service = VersionCommitService(db, Ready())
@@ -103,6 +103,13 @@ def test_commit_first_version_atomically_updates_three_records(db):
     assert ObjectChunkIndexRepository(db).get_sequence(obj.object_id) == 1
     assert ObjectChunkIndexRepository(db).list_for_object(obj.object_id) == ()
 
+    from engram.metadata.mmr import MMRStateRepository, MMRNodeRepository, MMRMetadataService
+    mmr_state = MMRStateRepository(db).get(obj.object_id)
+    assert mmr_state is not None
+    assert mmr_state.state.leaf_count == 1
+    assert MMRNodeRepository(db).list_for_object(obj.object_id) == ()
+    assert MMRMetadataService(db).validate(obj.object_id) is True
+
 
 def test_commit_second_version_links_current_head(db):
     obj = create_object(db)
@@ -121,6 +128,35 @@ def test_commit_second_version_links_current_head(db):
     assert committed.parent_version_id == first.version.version_id
     assert VersionRepository(db).get_latest(obj.object_id) == committed
     assert ObjectChunkIndexRepository(db).get_sequence(obj.object_id) == 2
+    from engram.metadata.mmr import MMRStateRepository, MMRMetadataService
+    assert MMRStateRepository(db).get(obj.object_id).state.leaf_count == 2
+    mmr = MMRMetadataService(db)
+    assert mmr.validate(obj.object_id) is True
+    assert mmr.get_membership_proof(obj.object_id, 1) is not None
+    assert mmr.get_consistency_proof(obj.object_id, 1, 2) is not None
+
+
+
+def test_commit_rolls_back_all_metadata_when_mmr_staging_fails(db):
+    obj = create_object(db)
+    result = build_result(obj)
+
+    class BrokenMMR:
+        def stage_append(self, **kwargs):
+            raise RuntimeError("MMR metadata staging failed")
+
+    service = VersionCommitService(db, Ready(), mmr_metadata_service=BrokenMMR())
+    from engram.metadata.logical.services.version_commit_service import MetadataCommitError
+    with pytest.raises(MetadataCommitError):
+        service.commit(result, expected_head_sequence=0)
+
+    assert ObjectRepository(db).get(obj.object_id) == obj
+    assert VersionRepository(db).get(obj.object_id, 1) is None
+    assert VersionDeltaRepository(db).get(obj.object_id, 1) is None
+    assert ObjectChunkIndexRepository(db).get_sequence(obj.object_id) == 0
+    from engram.metadata.mmr import MMRStateRepository, MMRNodeRepository
+    assert MMRStateRepository(db).get(obj.object_id) is None
+    assert MMRNodeRepository(db).list_for_object(obj.object_id) == ()
 
 
 def test_commit_rejects_missing_object(db):

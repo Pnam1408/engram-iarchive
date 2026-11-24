@@ -56,8 +56,7 @@ class PhysicalReadinessChecker(Protocol):
 
 class VersionCommitService:
     """
-    Atomically publishes four logical records:
-    Version, VersionDelta, Object Chunk Index, and Object Head.
+    Atomically publishes Version, VersionDelta, Object Chunk Index, MMR metadata, and Object Head.
 
     Concurrency is serialized per Object within this process. This is not a
     cross-process transaction/lock; deployments with multiple writers must add
@@ -71,6 +70,7 @@ class VersionCommitService:
         *,
         commitment_service: VersionCommitmentService | None = None,
         index_updater: ObjectChunkIndexUpdater | None = None,
+        mmr_metadata_service=None,
     ) -> None:
         if db is None:
             raise TypeError("db is required")
@@ -82,6 +82,14 @@ class VersionCommitService:
         self._deltas = VersionDeltaRepository(db)
         self._readiness = physical_readiness
         self._commitments = commitment_service or VersionCommitmentService()
+        from engram.metadata.mmr.services import MMRMetadataService
+
+        self._mmr_metadata = mmr_metadata_service or MMRMetadataService(
+            db,
+            commitment_service=self._commitments,
+            object_repository=self._objects,
+            version_repository=self._versions,
+        )
         self._index_updater = index_updater or ObjectChunkIndexUpdater(
             ObjectChunkIndexRepository(db),
             ChunkRepository(db),
@@ -161,13 +169,21 @@ class VersionCommitService:
                         expected_sequence=obj.head_sequence,
                         batch=batch,
                     )
+                    manifest_hash = self._commitments.compute_manifest_hash(version)
+                    self._mmr_metadata.stage_append(
+                        object_id=obj.object_id,
+                        sequence=version.sequence,
+                        version_manifest_hash=manifest_hash,
+                        expected_leaf_count=obj.head_sequence,
+                        batch=batch,
+                    )
                     self._objects.put(updated_object, batch)
                     batch.commit()
             except (ObjectChunkIndexUpdateError, ObjectChunkIndexError):
                 raise
             except Exception as exc:
                 raise MetadataCommitError(
-                    "Failed to atomically commit Version, Delta, Object Chunk Index, and Object Head"
+                    "Failed to atomically commit Version, Delta, Object Chunk Index, MMR metadata, and Object Head"
                 ) from exc
 
             return version

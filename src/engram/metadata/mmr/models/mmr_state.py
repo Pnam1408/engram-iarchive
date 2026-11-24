@@ -1,8 +1,6 @@
 """Persistable metadata record for an object's Version History MMR state."""
 
 from dataclasses import dataclass
-from uuid import UUID
-
 from engram.commitment.mmr import MMRState, validate_mmr_state
 
 MMR_PROTOCOL = "ENGRAM-VERSION-MMR/1"
@@ -11,12 +9,8 @@ MMR_PROTOCOL = "ENGRAM-VERSION-MMR/1"
 def _validate_object_id(value: str) -> None:
     if not isinstance(value, str):
         raise TypeError("object_id must be a string")
-    try:
-        parsed = UUID(value)
-    except (ValueError, TypeError, AttributeError) as exc:
-        raise ValueError("object_id must be a valid UUID") from exc
-    if parsed.version != 4:
-        raise ValueError("object_id must be a UUIDv4")
+    if not value:
+        raise ValueError("object_id must not be empty")
 
 
 @dataclass(frozen=True, slots=True)
