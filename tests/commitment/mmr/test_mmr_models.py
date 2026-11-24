@@ -106,3 +106,23 @@ def test_models_are_immutable():
         peak.height = 1
     with pytest.raises((AttributeError, TypeError)):
         state.leaf_count = 2
+
+
+def test_created_node_requires_aligned_internal_subtree():
+    from engram.commitment.common.exceptions import InvalidInputError
+    from engram.commitment.mmr import MMRCreatedNode
+
+    assert MMRCreatedNode(start_leaf=4, height=2, hash=b"x" * 32)
+    with pytest.raises(InvalidInputError, match="aligned"):
+        MMRCreatedNode(start_leaf=2, height=2, hash=b"x" * 32)
+    with pytest.raises(InvalidInputError, match="height"):
+        MMRCreatedNode(start_leaf=0, height=0, hash=b"x" * 32)
+
+
+def test_append_result_requires_tuple_of_created_nodes():
+    from engram.commitment.common.exceptions import InvalidTypeError
+    from engram.commitment.mmr import MMRAppendResult, MMRCreatedNode
+
+    node = MMRCreatedNode(start_leaf=0, height=1, hash=b"x" * 32)
+    with pytest.raises(InvalidTypeError, match="tuple"):
+        MMRAppendResult(MMRState(2, (Peak(1, b"y" * 32),)), [node])

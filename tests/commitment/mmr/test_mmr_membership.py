@@ -173,3 +173,46 @@ def test_verifier_rejects_wrong_expected_root_type_or_length():
         verify_membership_proof(proof, bytearray(32))
     with pytest.raises((InvalidInputError, ValueError)):
         verify_membership_proof(proof, b"short")
+
+
+@pytest.mark.parametrize("count", range(1, 34))
+def test_membership_sibling_positions_match_proof_path_shape(count):
+    from engram.commitment.mmr import membership_sibling_positions
+
+    for leaf_index in range(count):
+        positions = membership_sibling_positions(leaf_index, count)
+        peak = next(
+            (start, height)
+            for start, height in _layout(count)
+            if start <= leaf_index < start + (1 << height)
+        )
+        peak_start, peak_height = peak
+        local_index = leaf_index - peak_start
+        expected = []
+        for level in range(peak_height):
+            size = 1 << level
+            sibling_index = (local_index >> level) ^ 1
+            expected.append((peak_start + sibling_index * size, level))
+        assert tuple((p.start_leaf, p.height) for p in positions) == tuple(expected)
+
+
+def test_membership_sibling_positions_for_leaf_five_in_eight_leaf_mountain():
+    from engram.commitment.mmr import membership_sibling_positions
+
+    positions = membership_sibling_positions(5, 8)
+    assert tuple((p.start_leaf, p.height) for p in positions) == (
+        (4, 0),
+        (6, 1),
+        (0, 2),
+    )
+
+
+@pytest.mark.parametrize(
+    ("leaf_index", "leaf_count"),
+    [(-1, 1), (0, 0), (1, 1), (True, 1), (0, True)],
+)
+def test_membership_sibling_positions_reject_invalid_indices(leaf_index, leaf_count):
+    from engram.commitment.mmr import membership_sibling_positions
+
+    with pytest.raises((InvalidInputError, InvalidTypeError, ValueError, TypeError)):
+        membership_sibling_positions(leaf_index, leaf_count)

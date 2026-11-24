@@ -12,14 +12,30 @@ from .hashing import (
     hash_node,
     hash_root,
 )
-from .models import MMRState, Peak, validate_mmr_state, validate_peak
+from .models import (
+    MMRAppendResult,
+    MMRCreatedNode,
+    MMRState,
+    Peak,
+    validate_created_node,
+    validate_mmr_append_result,
+    validate_mmr_state,
+    validate_peak,
+)
 
-from .operations import append_leaf, append_subtree, calculate_root
+from .operations import (
+    append_leaf,
+    append_leaf_with_nodes,
+    append_subtree,
+    calculate_root,
+)
 
 
 from .membership import (
     MMRMembershipProof,
+    MMRNodePosition,
     create_membership_proof,
+    membership_sibling_positions,
     validate_membership_proof,
     verify_membership_proof,
 )

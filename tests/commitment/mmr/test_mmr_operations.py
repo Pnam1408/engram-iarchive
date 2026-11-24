@@ -128,3 +128,44 @@ def test_calculate_root_changes_when_peak_hash_changes():
 def test_calculate_root_rejects_invalid_state():
     with pytest.raises(InvalidTypeError):
         calculate_root(object())
+
+
+def test_append_leaf_with_nodes_reports_every_merge_bottom_up():
+    from engram.commitment.mmr import append_leaf_with_nodes
+
+    state = _state_after(7)
+    result = append_leaf_with_nodes(state, _digest(8))
+
+    assert result.state.leaf_count == 8
+    assert tuple(peak.height for peak in result.state.peaks) == (3,)
+    assert tuple(
+        (node.start_leaf, node.height) for node in result.created_nodes
+    ) == ((6, 1), (4, 2), (0, 3))
+    assert state.leaf_count == 7
+
+
+def test_append_leaf_with_nodes_reports_no_internal_nodes_without_merge():
+    from engram.commitment.mmr import append_leaf_with_nodes
+
+    result = append_leaf_with_nodes(MMRState(0, ()), _digest(1))
+    assert result.state.leaf_count == 1
+    assert result.created_nodes == ()
+
+
+def test_append_leaf_uses_same_state_result_as_append_leaf_with_nodes():
+    from engram.commitment.mmr import append_leaf_with_nodes
+
+    state = _state_after(5)
+    version_hash = _digest(6)
+    assert append_leaf(state, version_hash) == append_leaf_with_nodes(
+        state, version_hash
+    ).state
+
+
+def test_append_leaf_with_nodes_rejects_invalid_input():
+    from engram.commitment.mmr import append_leaf_with_nodes
+
+    with pytest.raises(InvalidTypeError):
+        append_leaf_with_nodes(object(), _digest(1))
+    with pytest.raises((InvalidInputError, InvalidTypeError)):
+        append_leaf_with_nodes(MMRState(0, ()), bytearray(32))

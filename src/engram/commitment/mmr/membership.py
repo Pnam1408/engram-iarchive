@@ -17,6 +17,22 @@ from .operations import calculate_root
 
 
 @dataclass(frozen=True, slots=True)
+class MMRNodePosition:
+    """Location of a perfect subtree, used to retrieve a proof sibling."""
+
+    start_leaf: int
+    height: int
+
+    def __post_init__(self) -> None:
+        start_leaf = require_uint(self.start_leaf, 64, name="start_leaf")
+        height = require_uint(self.height, 8, name="height")
+        if height > 63:
+            raise InvalidInputError("height exceeds the supported u64 MMR range")
+        if start_leaf % (1 << height) != 0:
+            raise InvalidInputError("sibling subtree start_leaf must be aligned")
+
+
+@dataclass(frozen=True, slots=True)
 class MMRMembershipProof:
     """Proof that a Version Manifest Hash occupies ``leaf_index`` in an MMR.
 
@@ -57,6 +73,32 @@ def _locate_peak(leaf_index: int, leaf_count: int) -> tuple[int, int, int]:
     raise InvalidInputError("leaf_index does not belong to an MMR peak")
 
 
+def membership_sibling_positions(
+    leaf_index: int, leaf_count: int
+) -> tuple[MMRNodePosition, ...]:
+    """Return sibling subtree coordinates in bottom-up proof order.
+
+    Height-zero positions identify sibling leaves. Higher positions identify
+    internal nodes. The returned coordinates are suitable for direct lookup
+    in an MMR node repository using ``(object_id, start_leaf, height)``.
+    """
+    leaf_count = require_uint(leaf_count, 64, name="leaf_count")
+    leaf_index = require_uint(leaf_index, 64, name="leaf_index")
+    if leaf_count == 0 or leaf_index >= leaf_count:
+        raise InvalidInputError("leaf_index must be within a non-empty MMR")
+
+    _, peak_start, peak_height = _locate_peak(leaf_index, leaf_count)
+    local_index = leaf_index - peak_start
+    positions: list[MMRNodePosition] = []
+    for level in range(peak_height):
+        subtree_size = 1 << level
+        current_node_index = local_index >> level
+        sibling_node_index = current_node_index ^ 1
+        sibling_start = peak_start + sibling_node_index * subtree_size
+        positions.append(MMRNodePosition(start_leaf=sibling_start, height=level))
+    return tuple(positions)
+
+
 def validate_membership_proof(proof: MMRMembershipProof) -> MMRMembershipProof:
     """Validate proof shape and all canonical ordering constraints."""
     if type(proof) is not MMRMembershipProof:
@@ -70,8 +112,9 @@ def validate_membership_proof(proof: MMRMembershipProof) -> MMRMembershipProof:
     version_hash = require_bytes(
         proof.version_manifest_hash, name="version_manifest_hash"
     )
-    require_length(version_hash, DIGEST_BYTES, DIGEST_BYTES,
-                   name="version_manifest_hash")
+    require_length(
+        version_hash, DIGEST_BYTES, DIGEST_BYTES, name="version_manifest_hash"
+    )
 
     if type(proof.siblings) is not tuple:
         raise InvalidTypeError("siblings must be a tuple")
@@ -80,16 +123,14 @@ def validate_membership_proof(proof: MMRMembershipProof) -> MMRMembershipProof:
 
     peak_index, _, peak_height = _locate_peak(leaf_index, leaf_count)
     if len(proof.siblings) != peak_height:
-        raise InvalidInputError(
-            "sibling count must equal the target peak height"
-        )
+        raise InvalidInputError("sibling count must equal the target peak height")
     for sibling in proof.siblings:
         require_bytes(sibling, name="sibling hash")
         require_length(sibling, DIGEST_BYTES, DIGEST_BYTES, name="sibling hash")
 
     expected_heights = tuple(height for _, height in _mountain_layout(leaf_count))
     expected_other_heights = (
-        expected_heights[:peak_index] + expected_heights[peak_index + 1:]
+        expected_heights[:peak_index] + expected_heights[peak_index + 1 :]
     )
     if len(proof.other_peaks) != len(expected_other_heights):
         raise InvalidInputError("other_peaks count does not match MMR shape")
@@ -160,9 +201,7 @@ def create_membership_proof(
     return proof
 
 
-def verify_membership_proof(
-    proof: MMRMembershipProof, expected_root: bytes
-) -> bool:
+def verify_membership_proof(proof: MMRMembershipProof, expected_root: bytes) -> bool:
     """Verify a membership proof against an expected MMR root.
 
     Malformed proof structure raises the relevant validation exception;

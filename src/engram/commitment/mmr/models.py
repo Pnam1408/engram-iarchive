@@ -108,3 +108,64 @@ def validate_mmr_state(state: MMRState) -> MMRState:
         )
 
     return state
+
+
+@dataclass(frozen=True, slots=True)
+class MMRCreatedNode:
+    """An internal node created while appending to an MMR.
+
+    ``start_leaf`` is the first leaf covered by the perfect subtree.
+    Created nodes always have height >= 1 because leaf hashes are derived
+    from Version Manifest Hashes and are not persisted as internal nodes.
+    """
+
+    start_leaf: int
+    height: int
+    hash: bytes
+
+    def __post_init__(self) -> None:
+        validate_created_node(self)
+
+
+@dataclass(frozen=True, slots=True)
+class MMRAppendResult:
+    """Result of appending one Version leaf, including new internal nodes."""
+
+    state: MMRState
+    created_nodes: tuple[MMRCreatedNode, ...]
+
+    def __post_init__(self) -> None:
+        validate_mmr_append_result(self)
+
+
+def validate_created_node(node: MMRCreatedNode) -> MMRCreatedNode:
+    """Validate a newly-created internal node descriptor."""
+    if type(node) is not MMRCreatedNode:
+        raise InvalidTypeError("node must be an MMRCreatedNode")
+    start_leaf = require_uint(node.start_leaf, 64, name="start_leaf")
+    height = require_uint(node.height, 8, name="height")
+    if not 1 <= height <= MAX_PEAK_HEIGHT:
+        raise InvalidInputError("created internal node height must be in [1, 63]")
+    if start_leaf % (1 << height) != 0:
+        raise InvalidInputError("created internal node start_leaf must be aligned")
+    digest = require_bytes(node.hash, name="hash")
+    require_length(digest, DIGEST_BYTES, DIGEST_BYTES, name="hash")
+    return node
+
+
+def validate_mmr_append_result(result: MMRAppendResult) -> MMRAppendResult:
+    """Validate the shape of an append result."""
+    if type(result) is not MMRAppendResult:
+        raise InvalidTypeError("result must be an MMRAppendResult")
+    validate_mmr_state(result.state)
+    if type(result.created_nodes) is not tuple:
+        raise InvalidTypeError("created_nodes must be a tuple")
+    previous_height = 0
+    for index, node in enumerate(result.created_nodes):
+        validate_created_node(node)
+        if index and node.height <= previous_height:
+            raise InvalidInputError(
+                "created_nodes must be ordered by strictly increasing height"
+            )
+        previous_height = node.height
+    return result
